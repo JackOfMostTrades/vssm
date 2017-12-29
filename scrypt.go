@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"crypto/rand"
 	"encoding/base64"
 	"errors"
@@ -10,6 +9,7 @@ import (
 	"math"
 	"strconv"
 	"strings"
+	"crypto/hmac"
 )
 
 func calcScrypt(pwd string) string {
@@ -60,5 +60,5 @@ func verifyScrypt(pwd, hash string) bool {
 	}
 
 	computed, err := scrypt.Key([]byte(pwd), salt, n, r, p, 32)
-	return bytes.Equal(value, computed)
+	return hmac.Equal(value, computed)
 }

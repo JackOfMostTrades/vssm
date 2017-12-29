@@ -30,6 +30,14 @@ This key can come from one of two places, which means these must be parties that
 
 We note that in the context of using a software-based security solution, we are already implicitly trusting our cloud provider. Even without spoofing attestation credentials, the cloud provider also runs the hypervisor in which our VSSM instances are running. Therefore the cloud provider has direct access to memory where plaintext key material lives. Therefore, trust in the cloud provider should already be implicit. If you do not trust your cloud provider, then a hardware-backed security system is necessary and VSSM is not appropriate for your use case.
 
+Other Caveats
+=============
+
+This security module solution is not a drop-in replacement for HSMs. Take note of the following concerns:
+
+* VSSM is not designed to be defensive against cryptographic side channels. It uses golang's cryptography SDK. To the extent that this SDK contains a side channels (such as timing analysis), VSSM will be subject to these attacks as well.
+* VSSM has not had any professional, third-party audit. It does not necessarily comply with any certifications.
+
 API Overview
 ============
 
@@ -57,6 +65,12 @@ Manual bootstrap:
 
     $ curl -X POST -d @bootstrap.json http://localhost:8080/REST/v1/admin/bootstrap
 
+
+TODO
+====
+
+* Debug log endpoint
+* Document config setup
 
 
 Development Tips

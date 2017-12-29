@@ -21,7 +21,13 @@ type AdminServiceImpl struct {
 	appState *appState
 }
 
+var ErrBadPassword = errors.New("Incorrect administrator password.")
+
 func (s *AdminServiceImpl) GenerateKey(ctx context.Context, request *vssmpb.GenerateKeyRequest) (*vssmpb.GenerateKeyResponse, error) {
+	if !verifyScrypt(request.AdminPassword, s.appState.rootPassword) {
+		return nil, ErrBadPassword
+	}
+
 	if request.KeyType == "SYMMETRIC" {
 		if _, ok := s.appState.keyStore.symmetricKeys[request.KeyName]; ok {
 			return nil, fmt.Errorf("Key with name %s already exists.", request.KeyName)
@@ -148,6 +154,9 @@ func _addMacKey(keyStore *keyStore, keyName string, key *MacKey) {
 }
 
 func (s *AdminServiceImpl) InjectKey(ctx context.Context, request *vssmpb.InjectKeyRequest) (*vssmpb.InjectKeyResponse, error) {
+	if !verifyScrypt(request.AdminPassword, s.appState.rootPassword) {
+		return nil, ErrBadPassword
+	}
 
 	if request.KeyType == "SYMMETRIC" {
 		if _, ok := s.appState.keyStore.symmetricKeys[request.KeyName]; ok {
@@ -202,6 +211,10 @@ func (s *AdminServiceImpl) InjectKey(ctx context.Context, request *vssmpb.Inject
 }
 
 func (s *AdminServiceImpl) GenerateBackup(ctx context.Context, request *vssmpb.GenerateBackupRequest) (*vssmpb.GenerateBackupResponse, error) {
+	if !verifyScrypt(request.AdminPassword, s.appState.rootPassword) {
+		return nil, ErrBadPassword
+	}
+
 	backup_message := appStateToSynchronizeMessage(s.appState)
 	backup_message.KnownClients = nil
 	marshaller := &jsonpb.Marshaler{}
@@ -240,6 +253,10 @@ func (s *AdminServiceImpl) GenerateBackup(ctx context.Context, request *vssmpb.G
 }
 
 func (s *AdminServiceImpl) RestoreBackup(ctx context.Context, request *vssmpb.RestoreBackupRequest) (*vssmpb.RestoreBackupResponse, error) {
+	if !verifyScrypt(request.AdminPassword, s.appState.rootPassword) {
+		return nil, ErrBadPassword
+	}
+
 	if request.Backup.Version != 1 {
 		return nil, errors.New("Unsupported backup version.")
 	}
@@ -324,6 +341,10 @@ func _encodePublicKey(priv interface{}) ([]byte, error) {
 }
 
 func (s *AdminServiceImpl) ListKeys(ctx context.Context, request *vssmpb.ListKeysRequest) (*vssmpb.ListKeysResponse, error) {
+	if !verifyScrypt(request.AdminPassword, s.appState.rootPassword) {
+		return nil, ErrBadPassword
+	}
+
 	if len(request.KeyName) > 0 {
 		if request.KeyType == "SYMMETRIC" {
 			key, ok := s.appState.keyStore.symmetricKeys[request.KeyName]
