@@ -235,6 +235,7 @@ func _attemptBootstrap(appState *appState, metadataBytes []byte) {
 							appState.rpcPrivateKeyPkcs8 = responseMsg.RpcPrivateKey
 							appState.rpcCertificate.PrivateKey = key
 							appState.logger.Info("Automatic bootstrap successful...")
+							return
 						default:
 							appState.logger.Error("tls: found unknown private key type in PKCS#8 wrapping")
 						}
