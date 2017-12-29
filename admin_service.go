@@ -28,6 +28,10 @@ func (s *AdminServiceImpl) GenerateKey(ctx context.Context, request *vssmpb.Gene
 		return nil, ErrBadPassword
 	}
 
+	if request.KeyName == "" {
+		return nil, errors.New("Key name cannot be blank.")
+	}
+
 	s.appState.logger.Info("Generating a %s key named %s...", request.KeyType, request.KeyName)
 
 	if request.KeyType == "SYMMETRIC" {
@@ -158,6 +162,10 @@ func _addMacKey(keyStore *keyStore, keyName string, key *MacKey) {
 func (s *AdminServiceImpl) InjectKey(ctx context.Context, request *vssmpb.InjectKeyRequest) (*vssmpb.InjectKeyResponse, error) {
 	if !verifyScrypt(request.AdminPassword, s.appState.rootPassword) {
 		return nil, ErrBadPassword
+	}
+
+	if request.KeyName == "" {
+		return nil, errors.New("Key name cannot be blank.")
 	}
 
 	s.appState.logger.Info("Injecting a %s key named %s...", request.KeyType, request.KeyName)

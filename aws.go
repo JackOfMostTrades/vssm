@@ -1,11 +1,11 @@
 package main
 
 import (
-	"github.com/aws/aws-sdk-go/service/autoscaling"
-	"github.com/aws/aws-sdk-go/service/ec2"
+	"errors"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
-	"errors"
+	"github.com/aws/aws-sdk-go/service/autoscaling"
+	"github.com/aws/aws-sdk-go/service/ec2"
 )
 
 var AWS_CERTS = map[string]string{
@@ -51,7 +51,7 @@ func GetPeers(myRegion string, myAsg string) ([]string, error) {
 	for {
 		describeInstanceOutput, err := ec2Client.DescribeInstances(&ec2.DescribeInstancesInput{
 			InstanceIds: instanceIds,
-			NextToken: nextToken,
+			NextToken:   nextToken,
 		})
 		if err != nil {
 			return nil, err

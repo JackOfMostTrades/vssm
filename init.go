@@ -5,6 +5,7 @@ import (
 	"crypto/rsa"
 	"crypto/tls"
 	"crypto/x509"
+	"errors"
 	"fmt"
 	"github.com/golang/protobuf/jsonpb"
 	"github.com/golang/protobuf/proto"
@@ -15,7 +16,6 @@ import (
 	"stash.corp.netflix.com/ps/vssm/vssmpb"
 	"strings"
 	"time"
-	"errors"
 )
 
 func serviceHandlerFor(requestType func() proto.Message, handler func(context.Context, proto.Message) (proto.Message, error)) func(w http.ResponseWriter, r *http.Request) {
