@@ -18,14 +18,17 @@ const (
 type appState struct {
 	logger             *logging.Logger
 	status             AppStatus
-	myAmi              string
 	rpcPrivateKeyPkcs8 []byte
 	rpcCertificate     tls.Certificate
-	bootstrapHost      string
 	clientTrustStore   *x509.CertPool
 	rootPassword       string
 	keyStore           *keyStore
-	knownClients       []string
+
+	// Instance metadata
+	myIp     string
+	myAmi    string
+	myAsg    string
+	myRegion string
 }
 
 func (s *appState) serialize() []byte {

@@ -222,7 +222,6 @@ func (s *AdminServiceImpl) GenerateBackup(ctx context.Context, request *vssmpb.G
 	s.appState.logger.Info("Generating a backup of the key database...")
 
 	backup_message := appStateToSynchronizeMessage(s.appState)
-	backup_message.KnownClients = nil
 	marshaller := &jsonpb.Marshaler{}
 	backup_message_str, err := marshaller.MarshalToString(backup_message)
 	if err != nil {

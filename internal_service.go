@@ -56,25 +56,12 @@ func (s *InternalServiceImpl) BootstrapSlave(ctx context.Context, request *vssmp
 }
 
 func (s *InternalServiceImpl) SynchronizeState(ctx context.Context, request *vssmpb.SynchronizeStateRequest) (*vssmpb.SynchronizeStateResponse, error) {
-	alreadyKnown := false
-	for _, client := range s.appState.knownClients {
-		if client == request.ClientIp {
-			alreadyKnown = true
-			break
-		}
-	}
-	if !alreadyKnown {
-		s.appState.knownClients = append(s.appState.knownClients, request.ClientIp)
-	}
-
 	response := appStateToSynchronizeMessage(s.appState)
-
 	return response, nil
 }
 
 func appStateToSynchronizeMessage(appState *appState) *vssmpb.SynchronizeStateResponse {
 	response := &vssmpb.SynchronizeStateResponse{}
-	response.KnownClients = appState.knownClients
 	for name, key := range appState.keyStore.symmetricKeys {
 		response.SymmetricKey = append(response.SymmetricKey, &vssmpb.SymmetricKey{
 			Name:      name,

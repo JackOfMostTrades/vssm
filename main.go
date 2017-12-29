@@ -28,6 +28,9 @@ func main() {
 
 	if len(os.Args) > 1 && os.Args[1] == "--dev" {
 		appState.myAmi = ""
+		appState.myIp = "127.0.0.1"
+		appState.myRegion = ""
+		appState.myAsg = ""
 	} else {
 		bytes, err := getLocalCms()
 		if err != nil {
@@ -46,6 +49,16 @@ func main() {
 			return
 		}
 		appState.myAmi = metadata["imageId"].(string)
+		appState.myIp = metadata["privateIp"].(string)
+		appState.myRegion = metadata["region"].(string)
+
+		instanceId := metadata["instanceId"].(string)
+		asg, err := GetInstanceAsg(appState.myRegion, instanceId)
+		if err != nil {
+			logger.Fatal("Unable to determine this instance's ASG: %v", err)
+			return
+		}
+		appState.myAsg = asg
 	}
 
 	var configBytes []byte
@@ -88,7 +101,6 @@ func main() {
 		Certificate: [][]byte{rpcCertBytes},
 		Leaf:        rpcCert,
 	}
-	appState.bootstrapHost = config["bootstrapHost"].(string)
 	appState.clientTrustStore = x509.NewCertPool()
 	appState.rootPassword = config["rootPassword"].(string)
 

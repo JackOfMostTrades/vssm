@@ -18,13 +18,11 @@ message BootstrapSlaveResponse {
 }
 
 message SynchronizeStateRequest {
-    string client_ip = 1;
 }
 message SynchronizeStateResponse {
-    repeated string known_clients = 1;
-    repeated SymmetricKey symmetric_key = 2;
-    repeated AsymmetricKey asymmetric_key = 3;
-    repeated MacKey mac_key = 4;
+    repeated SymmetricKey symmetric_key = 1;
+    repeated AsymmetricKey asymmetric_key = 2;
+    repeated MacKey mac_key = 3;
 }
 message SynchronizeStatePushRequest {
     SynchronizeStateResponse synchronize_state_message = 1;

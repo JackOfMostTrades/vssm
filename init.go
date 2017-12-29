@@ -10,13 +10,12 @@ import (
 	"github.com/golang/protobuf/proto"
 	"golang.org/x/net/context"
 	"io/ioutil"
-	"log"
 	mathrand "math/rand"
-	"net"
 	"net/http"
 	"stash.corp.netflix.com/ps/vssm/vssmpb"
 	"strings"
 	"time"
+	"errors"
 )
 
 func serviceHandlerFor(requestType func() proto.Message, handler func(context.Context, proto.Message) (proto.Message, error)) func(w http.ResponseWriter, r *http.Request) {
@@ -46,9 +45,6 @@ func serviceHandlerFor(requestType func() proto.Message, handler func(context.Co
 }
 
 func vssmInit(appState *appState) {
-
-	ip := _getOutboundIP()
-	appState.knownClients = []string{ip.String()}
 
 	var metadataBytes []byte
 	if appState.myAmi != "" {
@@ -159,7 +155,32 @@ func vssmInit(appState *appState) {
 	startApp(appState)
 }
 
+func _chooseRandomPeer(appState *appState) (string, error) {
+	peers, err := GetPeers(appState.myRegion, appState.myAsg)
+	if err != nil {
+		return "", err
+	}
+	// Choose a random peer (that isn't myself)
+	if len(peers) == 0 || (len(peers) == 1 && peers[0] == appState.myIp) {
+		return "", errors.New("No peers found.")
+	}
+
+	peer := appState.myIp
+	for peer == appState.myIp {
+		n := mathrand.Int31n(int32(len(peers)))
+		peer = peers[n]
+	}
+	return peer, nil
+}
+
 func _attemptBootstrap(appState *appState, metadataBytes []byte) {
+
+	peers, err := GetPeers(appState.myRegion, appState.myAsg)
+	if err != nil {
+		appState.logger.Error("Unable to get a peers for bootstrapping: %v", err)
+		return
+	}
+
 	marshaller := &jsonpb.Marshaler{}
 	request := &vssmpb.BootstrapSlaveRequest{
 		ClientCms: metadataBytes,
@@ -182,33 +203,41 @@ func _attemptBootstrap(appState *appState, metadataBytes []byte) {
 		},
 	}
 
-	response, err := client.Post("https://"+appState.bootstrapHost+":8083/REST/v1/internal/bootstrapslave", "application/json",
-		strings.NewReader(requestStr))
-	if err != nil {
-		appState.logger.Error("Error performing automatic bootstrap: %s", err)
-	} else {
-		if response.StatusCode != 200 {
-			appState.logger.Error("Got non-200 status code during automatic bootstrap: %s", response.Status)
-			body, err := ioutil.ReadAll(response.Body)
-			response.Body.Close()
-			if err == nil {
-				appState.logger.Error("Response body: %s", string(body))
-			}
+	for _, peer := range peers {
+		if peer == appState.myIp {
+			continue
+		}
+
+		appState.logger.Info("Attempting to bootstrap from %s...", peer)
+
+		response, err := client.Post("https://"+peer+":8083/REST/v1/internal/bootstrapslave", "application/json",
+			strings.NewReader(requestStr))
+		if err != nil {
+			appState.logger.Error("Error performing automatic bootstrap: %s", err)
 		} else {
-			var responseMsg vssmpb.BootstrapSlaveResponse
-			err = jsonpb.Unmarshal(response.Body, &responseMsg)
-			response.Body.Close()
-			if err != nil {
-				appState.logger.Error("Unable to unmarshal response: %v", err)
+			if response.StatusCode != 200 {
+				appState.logger.Error("Got non-200 status code during automatic bootstrap: %s", response.Status)
+				body, err := ioutil.ReadAll(response.Body)
+				response.Body.Close()
+				if err == nil {
+					appState.logger.Error("Response body: %s", string(body))
+				}
 			} else {
-				if key, err := x509.ParsePKCS8PrivateKey(responseMsg.RpcPrivateKey); err == nil {
-					switch key := key.(type) {
-					case *rsa.PrivateKey, *ecdsa.PrivateKey:
-						appState.rpcPrivateKeyPkcs8 = responseMsg.RpcPrivateKey
-						appState.rpcCertificate.PrivateKey = key
-						appState.logger.Info("Automatic bootstrap successful...")
-					default:
-						appState.logger.Error("tls: found unknown private key type in PKCS#8 wrapping")
+				var responseMsg vssmpb.BootstrapSlaveResponse
+				err = jsonpb.Unmarshal(response.Body, &responseMsg)
+				response.Body.Close()
+				if err != nil {
+					appState.logger.Error("Unable to unmarshal response: %v", err)
+				} else {
+					if key, err := x509.ParsePKCS8PrivateKey(responseMsg.RpcPrivateKey); err == nil {
+						switch key := key.(type) {
+						case *rsa.PrivateKey, *ecdsa.PrivateKey:
+							appState.rpcPrivateKeyPkcs8 = responseMsg.RpcPrivateKey
+							appState.rpcCertificate.PrivateKey = key
+							appState.logger.Info("Automatic bootstrap successful...")
+						default:
+							appState.logger.Error("tls: found unknown private key type in PKCS#8 wrapping")
+						}
 					}
 				}
 			}
@@ -216,27 +245,18 @@ func _attemptBootstrap(appState *appState, metadataBytes []byte) {
 	}
 }
 
-// https://stackoverflow.com/questions/23558425/how-do-i-get-the-local-ip-address-in-go
-// Get preferred outbound ip of this machine
-func _getOutboundIP() net.IP {
-	conn, err := net.Dial("udp", "8.8.8.8:80")
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer conn.Close()
-
-	localAddr := conn.LocalAddr().(*net.UDPAddr)
-
-	return localAddr.IP
-}
-
 func _synchronizeNow(appState *appState) error {
-	appState.logger.Debug("Requesting synchronization from %s.", appState.bootstrapHost)
+	appState.logger.Debug("Attempting synchronization...")
+
+	peer, err := _chooseRandomPeer(appState)
+	if err != nil {
+		return err
+	}
+
+	appState.logger.Debug("Request synchronization from %s...", peer)
 
 	marshaller := &jsonpb.Marshaler{}
-	request := &vssmpb.SynchronizeStateRequest{
-		ClientIp: _getOutboundIP().String(),
-	}
+	request := &vssmpb.SynchronizeStateRequest{}
 	requestStr, err := marshaller.MarshalToString(request)
 	if err != nil {
 		return err
@@ -255,7 +275,7 @@ func _synchronizeNow(appState *appState) error {
 		},
 	}
 
-	response, err := client.Post("https://"+appState.bootstrapHost+":8082/REST/v1/internal/synchronizestate", "application/json",
+	response, err := client.Post("https://"+peer+":8082/REST/v1/internal/synchronizestate", "application/json",
 		strings.NewReader(requestStr))
 	if err != nil {
 		return err
@@ -279,24 +299,6 @@ func _synchronizeNow(appState *appState) error {
 }
 
 func synchronizeStateFromResponse(appState *appState, responseMsg *vssmpb.SynchronizeStateResponse) error {
-	myIp := _getOutboundIP().String()
-	for _, client := range responseMsg.KnownClients {
-		if client == myIp {
-			continue
-		}
-
-		alreadyKnown := false
-		for _, knownClient := range appState.knownClients {
-			if knownClient == client {
-				alreadyKnown = true
-				break
-			}
-		}
-		if !alreadyKnown {
-			appState.logger.Debug("Adding a new known client: %s", client)
-			appState.knownClients = append(appState.knownClients, client)
-		}
-	}
 	{
 		newMap := make(map[string]*SymmetricKey)
 		for name, key := range appState.keyStore.symmetricKeys {
@@ -358,9 +360,12 @@ func synchronizeStateFromResponse(appState *appState, responseMsg *vssmpb.Synchr
 }
 
 func pushSyncNow(appState *appState) error {
-	myIp := _getOutboundIP().String()
-	for _, ip := range appState.knownClients {
-		if ip == myIp {
+	peerIps, err := GetPeers(appState.myRegion, appState.myAsg)
+	if err != nil {
+		return err
+	}
+	for _, ip := range peerIps {
+		if ip == appState.myIp {
 			continue
 		}
 
