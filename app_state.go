@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
+	"stash.corp.netflix.com/ps/vssm/logging"
 	"time"
 )
 
@@ -15,6 +16,7 @@ const (
 )
 
 type appState struct {
+	logger             *logging.Logger
 	status             AppStatus
 	myAmi              string
 	rpcPrivateKeyPkcs8 []byte

@@ -55,7 +55,7 @@ func vssmInit(appState *appState) {
 		var err error
 		metadataBytes, err = getLocalCms()
 		if err != nil {
-			fmt.Printf("Unable to get CMS document: %v\n", err)
+			appState.logger.Fatal("Unable to get CMS document: %v", err)
 			return
 		}
 	} else {
@@ -84,10 +84,10 @@ func vssmInit(appState *appState) {
 			case *rsa.PrivateKey, *ecdsa.PrivateKey:
 				appState.rpcPrivateKeyPkcs8 = request.RpcPrivateKey
 				appState.rpcCertificate.PrivateKey = key
-				fmt.Printf("Manual bootstrap successful...\n")
+				appState.logger.Info("Manual bootstrap successful...")
 				bootstrapChannel <- true
 			default:
-				fmt.Printf("tls: found unknown private key type in PKCS#8 wrapping\n")
+				appState.logger.Error("tls: found unknown private key type in PKCS#8 wrapping")
 			}
 		}
 
@@ -102,7 +102,7 @@ func vssmInit(appState *appState) {
 	})
 	bootstrapCert, err := generateSelfSigned()
 	if err != nil {
-		fmt.Printf("Unable to generate self-signed certificate for bootstrapping: %s\n", err)
+		appState.logger.Fatal("Unable to generate self-signed certificate for bootstrapping: %s", err)
 		return
 	}
 	s := &http.Server{
@@ -117,13 +117,13 @@ func vssmInit(appState *appState) {
 		err := s.ListenAndServeTLS("", "")
 		if err != nil {
 			if err != http.ErrServerClosed {
-				fmt.Printf("Error listening: %v\n", err)
+				appState.logger.Error("Error listening: %v", err)
 			}
 		}
 		shutdownChannel <- true
 	}()
 
-	fmt.Println("Attempting bootstrap...")
+	appState.logger.Info("Attempting bootstrap...")
 
 	done := false
 	doBootstrapWork := func() {
@@ -134,9 +134,9 @@ func vssmInit(appState *appState) {
 		if appState.rpcCertificate.PrivateKey != nil {
 			err := _synchronizeNow(appState)
 			if err != nil {
-				fmt.Printf("Error performing initial synchronization: %v\n", err)
+				appState.logger.Error("Error performing initial synchronization: %v", err)
 			} else {
-				fmt.Printf("Initial synchronization successful...\n")
+				appState.logger.Info("Initial synchronization successful...")
 				done = true
 			}
 		}
@@ -166,7 +166,7 @@ func _attemptBootstrap(appState *appState, metadataBytes []byte) {
 	}
 	requestStr, err := marshaller.MarshalToString(request)
 	if err != nil {
-		fmt.Printf("Unable to bootstrap request string: %v\n", err)
+		appState.logger.Error("Unable to build bootstrap request string: %v", err)
 		return
 	}
 
@@ -185,30 +185,30 @@ func _attemptBootstrap(appState *appState, metadataBytes []byte) {
 	response, err := client.Post("https://"+appState.bootstrapHost+":8083/REST/v1/internal/bootstrapslave", "application/json",
 		strings.NewReader(requestStr))
 	if err != nil {
-		fmt.Printf("Error performing automatic bootstrap: %s\n", err)
+		appState.logger.Error("Error performing automatic bootstrap: %s", err)
 	} else {
 		if response.StatusCode != 200 {
-			fmt.Printf("Got non-200 status code during automatic bootstrap: %s\n", response.Status)
+			appState.logger.Error("Got non-200 status code during automatic bootstrap: %s", response.Status)
 			body, err := ioutil.ReadAll(response.Body)
 			response.Body.Close()
 			if err == nil {
-				fmt.Printf("  Response body: %s\n", string(body))
+				appState.logger.Error("Response body: %s", string(body))
 			}
 		} else {
 			var responseMsg vssmpb.BootstrapSlaveResponse
 			err = jsonpb.Unmarshal(response.Body, &responseMsg)
 			response.Body.Close()
 			if err != nil {
-				fmt.Printf("Unable to unmarshal response: %v\n", err)
+				appState.logger.Error("Unable to unmarshal response: %v", err)
 			} else {
 				if key, err := x509.ParsePKCS8PrivateKey(responseMsg.RpcPrivateKey); err == nil {
 					switch key := key.(type) {
 					case *rsa.PrivateKey, *ecdsa.PrivateKey:
 						appState.rpcPrivateKeyPkcs8 = responseMsg.RpcPrivateKey
 						appState.rpcCertificate.PrivateKey = key
-						fmt.Printf("Automatic bootstrap successful...\n")
+						appState.logger.Info("Automatic bootstrap successful...")
 					default:
-						fmt.Printf("tls: found unknown private key type in PKCS#8 wrapping\n")
+						appState.logger.Error("tls: found unknown private key type in PKCS#8 wrapping")
 					}
 				}
 			}
@@ -231,7 +231,7 @@ func _getOutboundIP() net.IP {
 }
 
 func _synchronizeNow(appState *appState) error {
-	fmt.Printf("Requesting synchronization from %s.\n", appState.bootstrapHost)
+	appState.logger.Debug("Requesting synchronization from %s.", appState.bootstrapHost)
 
 	marshaller := &jsonpb.Marshaler{}
 	request := &vssmpb.SynchronizeStateRequest{
@@ -293,6 +293,7 @@ func synchronizeStateFromResponse(appState *appState, responseMsg *vssmpb.Synchr
 			}
 		}
 		if !alreadyKnown {
+			appState.logger.Debug("Adding a new known client: %s", client)
 			appState.knownClients = append(appState.knownClients, client)
 		}
 	}
@@ -304,6 +305,7 @@ func synchronizeStateFromResponse(appState *appState, responseMsg *vssmpb.Synchr
 		for _, key := range responseMsg.SymmetricKey {
 			remoteModified := timeOfUnixMillis(key.CreatedAt)
 			if _, exists := newMap[key.Name]; !exists || newMap[key.Name].createdAt.Before(remoteModified) {
+				appState.logger.Info("New symmetric key added from synchronization message: %s", key.Name)
 				newMap[key.Name] = &SymmetricKey{
 					key:       key.Key,
 					createdAt: remoteModified,
@@ -320,6 +322,7 @@ func synchronizeStateFromResponse(appState *appState, responseMsg *vssmpb.Synchr
 		for _, key := range responseMsg.AsymmetricKey {
 			remoteModified := timeOfUnixMillis(key.CreatedAt)
 			if _, exists := newMap[key.Name]; !exists || newMap[key.Name].createdAt.Before(remoteModified) {
+				appState.logger.Info("New asymmetric key added from synchronization message: %s", key.Name)
 				privateKey, err := x509.ParsePKCS8PrivateKey(key.Key)
 				if err == nil {
 					newMap[key.Name] = &AsymmetricKey{
@@ -341,6 +344,7 @@ func synchronizeStateFromResponse(appState *appState, responseMsg *vssmpb.Synchr
 		for _, key := range responseMsg.MacKey {
 			remoteModified := timeOfUnixMillis(key.CreatedAt)
 			if _, exists := newMap[key.Name]; !exists || newMap[key.Name].createdAt.Before(remoteModified) {
+				appState.logger.Info("New mac key added from synchronization message: %s", key.Name)
 				newMap[key.Name] = &MacKey{
 					key:       key.Key,
 					createdAt: time.Unix(key.CreatedAt/1000, (key.CreatedAt%1000)*1e6),
@@ -360,7 +364,7 @@ func pushSyncNow(appState *appState) error {
 			continue
 		}
 
-		fmt.Printf("Pushing state synchronization to %s.\n", ip)
+		appState.logger.Info("Pushing state synchronization to %s.", ip)
 
 		marshaller := &jsonpb.Marshaler{}
 		request := &vssmpb.SynchronizeStatePushRequest{
@@ -388,11 +392,11 @@ func pushSyncNow(appState *appState) error {
 		response, err := client.Post("https://"+ip+":8082/REST/v1/internal/synchronizestatepush", "application/json",
 			strings.NewReader(requestStr))
 		if err != nil {
-			fmt.Printf("Failed to push synchronization: %s\n", err)
+			appState.logger.Error("Failed to push synchronization: %s", err)
 			continue
 		}
 		if response.StatusCode != 200 {
-			fmt.Printf("Failed to push synchronization, bad status: %s\n", response.Status)
+			appState.logger.Error("Failed to push synchronization, bad status: %s", response.Status)
 			continue
 		}
 
@@ -400,7 +404,7 @@ func pushSyncNow(appState *appState) error {
 		err = jsonpb.Unmarshal(response.Body, &responseMsg)
 		response.Body.Close()
 		if err != nil {
-			fmt.Printf("Failed to parse push synchronization response: %s\n", err)
+			appState.logger.Error("Failed to parse push synchronization response: %s", err)
 			continue
 		} else {
 			// Do nothing with the response; presentl it is empty
@@ -412,7 +416,7 @@ func pushSyncNow(appState *appState) error {
 
 func startApp(appState *appState) {
 
-	fmt.Printf("Entering normal application running state...\n")
+	appState.logger.Info("Entering normal application running state...")
 	shutdownChannel := make(chan bool)
 
 	var internalSvc vssmpb.InternalServiceServer
@@ -444,7 +448,7 @@ func startApp(appState *appState) {
 	go func() {
 		err := internalUnauthServer.ListenAndServeTLS("", "")
 		if err != nil {
-			fmt.Printf("Error listening: %v\n", err)
+			appState.logger.Error("Error listening: %v", err)
 		}
 		shutdownChannel <- true
 	}()
@@ -473,7 +477,7 @@ func startApp(appState *appState) {
 	go func() {
 		err := internalAuthServer.ListenAndServeTLS("", "")
 		if err != nil {
-			fmt.Printf("Error listening: %v\n", err)
+			appState.logger.Error("Error listening: %v", err)
 		}
 		shutdownChannel <- true
 	}()
@@ -545,6 +549,11 @@ func startApp(appState *appState) {
 		func(context context.Context, request proto.Message) (proto.Message, error) {
 			return adminSvc.ListKeys(context, request.(*vssmpb.ListKeysRequest))
 		}))
+	mux.HandleFunc("/REST/v1/admin/getlogs", serviceHandlerFor(
+		func() proto.Message { return &vssmpb.GetLogsRequest{} },
+		func(context context.Context, request proto.Message) (proto.Message, error) {
+			return adminSvc.GetLogs(context, request.(*vssmpb.GetLogsRequest))
+		}))
 
 	server := &http.Server{
 		Addr:    ":8080",
@@ -561,7 +570,7 @@ func startApp(appState *appState) {
 	go func() {
 		err := server.ListenAndServeTLS("", "")
 		if err != nil {
-			fmt.Printf("Error listening: %v\n", err)
+			appState.logger.Error("Error listening: %v", err)
 		}
 		shutdownChannel <- true
 	}()
@@ -570,7 +579,7 @@ func startApp(appState *appState) {
 		for true {
 			err := _synchronizeNow(appState)
 			if err != nil {
-				fmt.Printf("Error during synchronization: %v\n", err)
+				appState.logger.Error("Error during synchronization: %v", err)
 			}
 			time.Sleep(5 * time.Minute)
 			time.Sleep((time.Duration)(mathrand.Int63n(300)) * time.Second)

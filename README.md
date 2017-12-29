@@ -69,7 +69,6 @@ Manual bootstrap:
 TODO
 ====
 
-* Debug log endpoint
 * Document config setup
 
 

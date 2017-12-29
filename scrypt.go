@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/hmac"
 	"crypto/rand"
 	"encoding/base64"
 	"errors"
@@ -9,7 +10,6 @@ import (
 	"math"
 	"strconv"
 	"strings"
-	"crypto/hmac"
 )
 
 func calcScrypt(pwd string) string {

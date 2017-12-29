@@ -5,17 +5,19 @@ import (
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
-	"fmt"
 	"github.com/fullsailor/pkcs7"
 	"io/ioutil"
 	"net/http"
 	"os"
+	"stash.corp.netflix.com/ps/vssm/logging"
 	"strings"
 )
 
 func main() {
 
+	logger := logging.New(logging.DEBUG, logging.INFO)
 	appState := &appState{
+		logger: logger,
 		status: STATUS_BOOTSTRAPPING,
 		keyStore: &keyStore{
 			symmetricKeys:  make(map[string]*SymmetricKey),
@@ -29,18 +31,18 @@ func main() {
 	} else {
 		bytes, err := getLocalCms()
 		if err != nil {
-			fmt.Printf("Unable to get CMS document: %v\n", err)
+			logger.Fatal("Unable to get CMS document: %v", err)
 			return
 		}
 		p7, err := pkcs7.Parse(bytes)
 		if err != nil {
-			fmt.Printf("Unable to parse CMS document: %v\n", err)
+			logger.Fatal("Unable to parse CMS document: %v", err)
 			return
 		}
 		var metadata map[string]interface{}
 		err = json.Unmarshal(p7.Content, &metadata)
 		if err != nil {
-			fmt.Printf("Unable to parse CMS document: %v\n", err)
+			logger.Fatal("Unable to parse CMS document: %v", err)
 			return
 		}
 		appState.myAmi = metadata["imageId"].(string)
@@ -50,36 +52,36 @@ func main() {
 	if _, err := os.Stat("config.json"); err == nil {
 		configBytes, err = ioutil.ReadFile("config.json")
 		if err != nil {
-			fmt.Printf("Error reading config.json: %v\n", err)
+			logger.Fatal("Error reading config.json: %v", err)
 			return
 		}
 	} else {
 		if _, err := os.Stat("/etc/vssm/config.json"); err == nil {
 			configBytes, err = ioutil.ReadFile("/etc/vssm/config.json")
 			if err != nil {
-				fmt.Printf("Error reading config.json: %v\n", err)
+				logger.Fatal("Error reading config.json: %v", err)
 				return
 			}
 		} else {
-			fmt.Printf("Unable to find config.json to load.")
+			logger.Fatal("Unable to find config.json to load.")
 			return
 		}
 	}
 	var config map[string]interface{}
 	err := json.Unmarshal(configBytes, &config)
 	if err != nil {
-		fmt.Printf("Unable to parse config.json: %v\n", err)
+		logger.Fatal("Unable to parse config.json: %v", err)
 		return
 	}
 
 	rpcCertBytes, err := base64.StdEncoding.DecodeString(config["rpcCertificate"].(string))
 	if err != nil {
-		fmt.Printf("Unable to decode rpc certificate: %v\n", err)
+		logger.Fatal("Unable to decode rpc certificate: %v", err)
 		return
 	}
 	rpcCert, err := x509.ParseCertificate(rpcCertBytes)
 	if err != nil {
-		fmt.Printf("Unable to parse rpc certificate: %v\n", err)
+		logger.Fatal("Unable to parse rpc certificate: %v", err)
 		return
 	}
 	appState.rpcCertificate = tls.Certificate{
@@ -93,12 +95,12 @@ func main() {
 	for _, certIface := range config["clientTrustStore"].([]interface{}) {
 		certBytes, err := base64.StdEncoding.DecodeString(certIface.(string))
 		if err != nil {
-			fmt.Printf("Unable to parse client trust store: %v\n", err)
+			logger.Fatal("Unable to parse client trust store: %v", err)
 			return
 		}
 		cert, err := x509.ParseCertificate(certBytes)
 		if err != nil {
-			fmt.Printf("Unable to parse client trust store: %v\n", err)
+			logger.Fatal("Unable to parse client trust store: %v", err)
 			return
 		}
 		appState.clientTrustStore.AddCert(cert)
@@ -122,7 +124,7 @@ func main() {
 	go func() {
 		err := s.ListenAndServe()
 		if err != nil {
-			fmt.Printf("Error listening: %v\n", err)
+			logger.Error("Error listening: %v", err)
 		}
 	}()
 

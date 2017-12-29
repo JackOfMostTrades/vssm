@@ -28,6 +28,8 @@ func (s *AdminServiceImpl) GenerateKey(ctx context.Context, request *vssmpb.Gene
 		return nil, ErrBadPassword
 	}
 
+	s.appState.logger.Info("Generating a %s key named %s...", request.KeyType, request.KeyName)
+
 	if request.KeyType == "SYMMETRIC" {
 		if _, ok := s.appState.keyStore.symmetricKeys[request.KeyName]; ok {
 			return nil, fmt.Errorf("Key with name %s already exists.", request.KeyName)
@@ -158,6 +160,8 @@ func (s *AdminServiceImpl) InjectKey(ctx context.Context, request *vssmpb.Inject
 		return nil, ErrBadPassword
 	}
 
+	s.appState.logger.Info("Injecting a %s key named %s...", request.KeyType, request.KeyName)
+
 	if request.KeyType == "SYMMETRIC" {
 		if _, ok := s.appState.keyStore.symmetricKeys[request.KeyName]; ok {
 			return nil, fmt.Errorf("Key with name %s already exists.", request.KeyName)
@@ -215,6 +219,8 @@ func (s *AdminServiceImpl) GenerateBackup(ctx context.Context, request *vssmpb.G
 		return nil, ErrBadPassword
 	}
 
+	s.appState.logger.Info("Generating a backup of the key database...")
+
 	backup_message := appStateToSynchronizeMessage(s.appState)
 	backup_message.KnownClients = nil
 	marshaller := &jsonpb.Marshaler{}
@@ -256,6 +262,8 @@ func (s *AdminServiceImpl) RestoreBackup(ctx context.Context, request *vssmpb.Re
 	if !verifyScrypt(request.AdminPassword, s.appState.rootPassword) {
 		return nil, ErrBadPassword
 	}
+
+	s.appState.logger.Info("Restoring from a backup of the key database...")
 
 	if request.Backup.Version != 1 {
 		return nil, errors.New("Unsupported backup version.")
@@ -344,6 +352,8 @@ func (s *AdminServiceImpl) ListKeys(ctx context.Context, request *vssmpb.ListKey
 	if !verifyScrypt(request.AdminPassword, s.appState.rootPassword) {
 		return nil, ErrBadPassword
 	}
+
+	s.appState.logger.Info("Listing keys in the key database...")
 
 	if len(request.KeyName) > 0 {
 		if request.KeyType == "SYMMETRIC" {
@@ -435,4 +445,21 @@ func (s *AdminServiceImpl) ListKeys(ctx context.Context, request *vssmpb.ListKey
 
 		return response, nil
 	}
+}
+
+func (s *AdminServiceImpl) GetLogs(ctx context.Context, request *vssmpb.GetLogsRequest) (*vssmpb.GetLogsResponse, error) {
+	if !verifyScrypt(request.AdminPassword, s.appState.rootPassword) {
+		return nil, ErrBadPassword
+	}
+
+	s.appState.logger.Info("Retrieving logs...")
+
+	logs := s.appState.logger.GetLogs()
+	response := &vssmpb.GetLogsResponse{
+		Log: make([]string, 0, len(logs)),
+	}
+	for _, log := range logs {
+		response.Log = append(response.Log, log.String())
+	}
+	return response, nil
 }

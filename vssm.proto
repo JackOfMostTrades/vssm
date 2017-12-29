@@ -100,6 +100,7 @@ service AdminService {
     rpc GenerateBackup (GenerateBackupRequest) returns (GenerateBackupResponse);
     rpc RestoreBackup (RestoreBackupRequest) returns (RestoreBackupResponse);
     rpc ListKeys (ListKeysRequest) returns (ListKeysResponse);
+    rpc GetLogs (GetLogsRequest) returns (GetLogsResponse);
 }
 
 message GenerateKeyRequest {
@@ -179,4 +180,11 @@ message ListKeysResponse {
     repeated ListKeysSymmetricKey symmetric_key = 1;
     repeated ListKeysAsymmetricKey asymmetric_key = 2;
     repeated ListKeysMacKey mac_key = 3;
+}
+
+message GetLogsRequest {
+    string admin_password = 1;
+}
+message GetLogsResponse {
+    repeated string log = 1;
 }

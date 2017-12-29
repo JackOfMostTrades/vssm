@@ -16,7 +16,7 @@ type InternalServiceImpl struct {
 
 func (s *InternalServiceImpl) BootstrapSlave(ctx context.Context, request *vssmpb.BootstrapSlaveRequest) (*vssmpb.BootstrapSlaveResponse, error) {
 
-	fmt.Printf("DEBUG [BootstrapSlave]: ClientCms=%s\n", base64.StdEncoding.EncodeToString(request.ClientCms))
+	s.appState.logger.Debug("ClientCms=%s", base64.StdEncoding.EncodeToString(request.ClientCms))
 
 	p7, err := pkcs7.Parse(request.ClientCms)
 	if err != nil {
@@ -101,7 +101,7 @@ func appStateToSynchronizeMessage(appState *appState) *vssmpb.SynchronizeStateRe
 }
 
 func (s *InternalServiceImpl) SynchronizeStatePush(ctx context.Context, request *vssmpb.SynchronizeStatePushRequest) (*vssmpb.SynchronizeStatePushResponse, error) {
-	fmt.Printf("Received state synchronization push.\n")
+	s.appState.logger.Info("Received state synchronization push.")
 	err := synchronizeStateFromResponse(s.appState, request.SynchronizeStateMessage)
 	if err != nil {
 		return nil, err
