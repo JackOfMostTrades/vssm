@@ -1,0 +1,177 @@
+syntax = "proto3";
+
+package com.netflix.vssm;
+
+option go_package = "stash.corp.netflix.com/ps/vssm/vssmpb";
+
+service VssmService {
+    rpc SymmetricEncrypt (SymmetricEncryptRequest) returns (SymmetricEncryptResponse);
+    rpc SymmetricDecrypt (SymmetricDecryptRequest) returns (SymmetricDecryptResponse);
+    rpc AsymmetricEncrypt (AsymmetricEncryptRequest) returns (AsymmetricEncryptResponse);
+    rpc AsymmetricDecrypt (AsymmetricDecryptRequest) returns (AsymmetricDecryptResponse);
+    rpc AsymmetricSign (AsymmetricSignRequest) returns (AsymmetricSignResponse);
+    rpc AsymmetricVerify (AsymmetricVerifyRequest) returns (AsymmetricVerifyResponse);
+    rpc HmacCreate (HmacCreateRequest) returns (HmacCreateResponse);
+    rpc HmacVerify (HmacVerifyRequest) returns (HmacVerifyResponse);
+}
+
+message ErrorResponse {
+    string error = 1;
+}
+
+message SymmetricEncryptRequest {
+    bytes input = 1;
+    string key_name = 2;
+    string algorithm = 3;
+}
+message SymmetricEncryptResponse {
+    bytes output = 1;
+}
+message SymmetricDecryptRequest {
+    bytes input = 1;
+    string key_name = 2;
+    string algorithm = 3;
+}
+message SymmetricDecryptResponse {
+    bytes output = 1;
+}
+
+message AsymmetricEncryptRequest {
+    bytes input = 1;
+    string key_name = 2;
+    string algorithm = 3;
+}
+message AsymmetricEncryptResponse {
+    bytes output = 1;
+}
+message AsymmetricDecryptRequest {
+    bytes input = 1;
+    string key_name = 2;
+    string algorithm = 3;
+}
+message AsymmetricDecryptResponse {
+    bytes output = 1;
+}
+message AsymmetricSignRequest {
+    // The entire input; will be hashed according to the algorithm
+    bytes input = 1;
+    // Ignored if input is supplied. Otherwise assumed to be the hash of the input (so no hashing will be performed)
+    bytes hashed = 2;
+    string key_name = 3;
+    string algorithm = 4;
+}
+message AsymmetricSignResponse {
+    bytes output = 1;
+}
+message AsymmetricVerifyRequest {
+    // The entire input; will be hashed according to the algorithm
+    bytes input = 1;
+    // Ignored if input is supplied. Otherwise assumed to be the hash of the input (so no hashing will be performed)
+    bytes hashed = 2;
+    bytes signature = 3;
+    string key_name = 4;
+    string algorithm = 5;
+}
+message AsymmetricVerifyResponse {
+    bool valid = 1;
+}
+
+message HmacCreateRequest {
+    bytes input = 1;
+    string key_name = 2;
+    string algorithm = 3;
+}
+message HmacCreateResponse {
+    bytes output = 1;
+}
+message HmacVerifyRequest {
+    bytes input = 1;
+    bytes hmac = 2;
+    string key_name = 3;
+    string algorithm = 4;
+}
+message HmacVerifyResponse {
+    bool valid = 1;
+}
+
+service AdminService {
+    rpc GenerateKey (GenerateKeyRequest) returns (GenerateKeyResponse);
+    rpc InjectKey (InjectKeyRequest) returns (InjectKeyResponse);
+    rpc GenerateBackup (GenerateBackupRequest) returns (GenerateBackupResponse);
+    rpc RestoreBackup (RestoreBackupRequest) returns (RestoreBackupResponse);
+    rpc ListKeys (ListKeysRequest) returns (ListKeysResponse);
+}
+
+message GenerateKeyRequest {
+    string key_name = 1;
+    // Key type: one of SYMMETRIC, ASYMMETRIC, or MAC
+    string key_type = 2;
+    // Only applicable for ASYMMETRIC. One of "RSA" or "EC".
+    string key_spec = 3;
+    // For SYMMETRIC or MAC, size of the key in bytes. For ASYMMETRIC keys, size of the key in bits.
+    uint64 key_size = 4;
+}
+message GenerateKeyResponse {
+}
+message InjectKeyRequest {
+    string key_name = 1;
+    // Key type: one of SYMMETRIC, ASYMMETRIC, or MAC
+    string key_type = 2;
+    // If a symmetric or hmac, literal key bytes. If asymmetric, a PKCS8 encoded private key
+    bytes key = 3;
+}
+message InjectKeyResponse {
+}
+
+message GenerateBackupRequest {
+}
+
+message GenerateBackupResponse {
+    BackupBlob backup = 1;
+}
+
+message BackupBlob {
+    bytes encryption_key = 1;
+    int64 version = 2;
+    int64 timestamp = 3;
+    bytes encrypted_state = 4;
+}
+
+message RestoreBackupRequest {
+    BackupBlob backup = 1;
+}
+message RestoreBackupResponse {
+}
+
+message ListKeysRequest {
+    // May be blank in which case all keys will be returned
+    string key_name = 1;
+    // May be blank if key_name is blank. Otherwise, one of: "SYMMETRIC", "ASYMMETRIC", "MAC"
+    string key_type = 2;
+}
+
+message ListKeysSymmetricKey {
+    string name = 1;
+    int64 created_at = 2;
+    // Key length in bytes
+    uint64 key_length = 3;
+}
+message ListKeysAsymmetricKey {
+    string name = 1;
+    int64 created_at = 2;
+    // One of "RSA" or "EC"
+    string key_spec = 3;
+    // PKIX encoded public key
+    bytes public_key = 4;
+}
+message ListKeysMacKey {
+    string name = 1;
+    int64 created_at = 2;
+    // Key length in bytes
+    uint64 key_length = 3;
+}
+message ListKeysResponse {
+    repeated ListKeysSymmetricKey symmetric_key = 1;
+    repeated ListKeysAsymmetricKey asymmetric_key = 2;
+    repeated ListKeysMacKey mac_key = 3;
+}

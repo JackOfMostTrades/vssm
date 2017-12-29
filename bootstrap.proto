@@ -1,0 +1,15 @@
+syntax = "proto3";
+
+package com.netflix.vssm;
+
+option go_package = "stash.corp.netflix.com/ps/vssm/vssmpb";
+
+service BootstrapService {
+    rpc Bootstrap (BootstrapRequest) returns (BootstrapResponse);
+}
+
+message BootstrapRequest {
+    bytes rpc_private_key = 1;
+}
+message BootstrapResponse {
+}

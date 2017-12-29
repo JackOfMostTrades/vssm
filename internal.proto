@@ -1,0 +1,57 @@
+syntax = "proto3";
+
+package com.netflix.vssm;
+
+option go_package = "stash.corp.netflix.com/ps/vssm/vssmpb";
+
+service InternalService {
+    rpc BootstrapSlave (BootstrapSlaveRequest) returns (BootstrapSlaveResponse);
+    rpc SynchronizeState(SynchronizeStateRequest) returns (SynchronizeStateResponse);
+    rpc SynchronizeStatePush(SynchronizeStatePushRequest) returns (SynchronizeStatePushResponse);
+}
+
+message BootstrapSlaveRequest {
+    bytes client_cms = 1;
+}
+message BootstrapSlaveResponse {
+    bytes rpc_private_key = 1;
+}
+
+message SynchronizeStateRequest {
+    string client_ip = 1;
+}
+message SynchronizeStateResponse {
+    repeated string known_clients = 1;
+    repeated SymmetricKey symmetric_key = 2;
+    repeated AsymmetricKey asymmetric_key = 3;
+    repeated MacKey mac_key = 4;
+}
+message SynchronizeStatePushRequest {
+    SynchronizeStateResponse synchronize_state_message = 1;
+}
+message SynchronizeStatePushResponse {
+}
+
+message SymmetricKey {
+    string name = 1;
+    // Milliseconds since epoch
+    int64 created_at = 2;
+    bytes key = 3;
+}
+
+message AsymmetricKey {
+    string name = 1;
+    // Milliseconds since epoch
+    int64 created_at = 2;
+    // E.g. RSA or EC
+    string key_type = 3;
+    // PKCS8 encoded bytes
+    bytes key = 4;
+}
+
+message MacKey {
+    string name = 1;
+    // Milliseconds since epoch
+    int64 created_at = 2;
+    bytes key = 3;
+}

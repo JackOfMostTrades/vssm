@@ -1,0 +1,584 @@
+package main
+
+import (
+	"crypto/ecdsa"
+	"crypto/rsa"
+	"crypto/tls"
+	"crypto/x509"
+	"fmt"
+	"github.com/golang/protobuf/jsonpb"
+	"github.com/golang/protobuf/proto"
+	"golang.org/x/net/context"
+	"io/ioutil"
+	"log"
+	mathrand "math/rand"
+	"net"
+	"net/http"
+	"stash.corp.netflix.com/ps/vssm/vssmpb"
+	"strings"
+	"time"
+)
+
+func serviceHandlerFor(requestType func() proto.Message, handler func(context.Context, proto.Message) (proto.Message, error)) func(w http.ResponseWriter, r *http.Request) {
+	marshaller := &jsonpb.Marshaler{}
+	return func(w http.ResponseWriter, r *http.Request) {
+		request := requestType()
+		err := jsonpb.Unmarshal(r.Body, request)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			marshaller.Marshal(w, &vssmpb.ErrorResponse{
+				Error: err.Error(),
+			})
+			return
+		}
+		r.Body.Close()
+
+		response, err := handler(context.Background(), request)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			marshaller.Marshal(w, &vssmpb.ErrorResponse{
+				Error: err.Error(),
+			})
+			return
+		}
+		marshaller.Marshal(w, response)
+	}
+}
+
+func vssmInit(appState *appState) {
+
+	ip := _getOutboundIP()
+	appState.knownClients = []string{ip.String()}
+
+	var metadataBytes []byte
+	if appState.myAmi != "" {
+		var err error
+		metadataBytes, err = getLocalCms()
+		if err != nil {
+			fmt.Printf("Unable to get CMS document: %v\n", err)
+			return
+		}
+	} else {
+		metadataBytes = nil
+	}
+
+	bootstrapChannel := make(chan bool, 1)
+	shutdownChannel := make(chan bool)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/REST/v1/admin/bootstrap", func(w http.ResponseWriter, r *http.Request) {
+		marshaller := &jsonpb.Marshaler{}
+		request := vssmpb.BootstrapRequest{}
+		err := jsonpb.Unmarshal(r.Body, &request)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			marshaller.Marshal(w, &vssmpb.ErrorResponse{
+				Error: err.Error(),
+			})
+			return
+		}
+		r.Body.Close()
+
+		var key interface{}
+		if key, err = x509.ParsePKCS8PrivateKey(request.RpcPrivateKey); err == nil {
+			switch key := key.(type) {
+			case *rsa.PrivateKey, *ecdsa.PrivateKey:
+				appState.rpcPrivateKeyPkcs8 = request.RpcPrivateKey
+				appState.rpcCertificate.PrivateKey = key
+				fmt.Printf("Manual bootstrap successful...\n")
+				bootstrapChannel <- true
+			default:
+				fmt.Printf("tls: found unknown private key type in PKCS#8 wrapping\n")
+			}
+		}
+
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			marshaller.Marshal(w, &vssmpb.ErrorResponse{
+				Error: err.Error(),
+			})
+			return
+		}
+		marshaller.Marshal(w, &vssmpb.BootstrapResponse{})
+	})
+	bootstrapCert, err := generateSelfSigned()
+	if err != nil {
+		fmt.Printf("Unable to generate self-signed certificate for bootstrapping: %s\n", err)
+		return
+	}
+	s := &http.Server{
+		Addr:    ":8080",
+		Handler: mux,
+		TLSConfig: &tls.Config{
+			Certificates: []tls.Certificate{bootstrapCert},
+			ClientAuth:   tls.NoClientCert,
+		},
+	}
+	go func() {
+		err := s.ListenAndServeTLS("", "")
+		if err != nil {
+			if err != http.ErrServerClosed {
+				fmt.Printf("Error listening: %v\n", err)
+			}
+		}
+		shutdownChannel <- true
+	}()
+
+	fmt.Println("Attempting bootstrap...")
+
+	done := false
+	doBootstrapWork := func() {
+		if appState.rpcCertificate.PrivateKey == nil {
+			_attemptBootstrap(appState, metadataBytes)
+		}
+
+		if appState.rpcCertificate.PrivateKey != nil {
+			err := _synchronizeNow(appState)
+			if err != nil {
+				fmt.Printf("Error performing initial synchronization: %v\n", err)
+			} else {
+				fmt.Printf("Initial synchronization successful...\n")
+				done = true
+			}
+		}
+	}
+
+	ticker := time.NewTicker(30 * time.Second)
+	doBootstrapWork()
+	for !done {
+		select {
+		case <-ticker.C:
+			doBootstrapWork()
+		case <-bootstrapChannel:
+			done = true
+		}
+	}
+
+	ticker.Stop()
+	s.Shutdown(context.Background())
+	<-shutdownChannel
+	startApp(appState)
+}
+
+func _attemptBootstrap(appState *appState, metadataBytes []byte) {
+	marshaller := &jsonpb.Marshaler{}
+	request := &vssmpb.BootstrapSlaveRequest{
+		ClientCms: metadataBytes,
+	}
+	requestStr, err := marshaller.MarshalToString(request)
+	if err != nil {
+		fmt.Printf("Unable to bootstrap request string: %v\n", err)
+		return
+	}
+
+	trustStore := x509.NewCertPool()
+	trustStore.AddCert(appState.rpcCertificate.Leaf)
+
+	client := &http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{
+				RootCAs:    trustStore,
+				ServerName: "VSSM",
+			},
+		},
+	}
+
+	response, err := client.Post("https://"+appState.bootstrapHost+":8083/REST/v1/internal/bootstrapslave", "application/json",
+		strings.NewReader(requestStr))
+	if err != nil {
+		fmt.Printf("Error performing automatic bootstrap: %s\n", err)
+	} else {
+		if response.StatusCode != 200 {
+			fmt.Printf("Got non-200 status code during automatic bootstrap: %s\n", response.Status)
+			body, err := ioutil.ReadAll(response.Body)
+			response.Body.Close()
+			if err == nil {
+				fmt.Printf("  Response body: %s\n", string(body))
+			}
+		} else {
+			var responseMsg vssmpb.BootstrapSlaveResponse
+			err = jsonpb.Unmarshal(response.Body, &responseMsg)
+			response.Body.Close()
+			if err != nil {
+				fmt.Printf("Unable to unmarshal response: %v\n", err)
+			} else {
+				if key, err := x509.ParsePKCS8PrivateKey(responseMsg.RpcPrivateKey); err == nil {
+					switch key := key.(type) {
+					case *rsa.PrivateKey, *ecdsa.PrivateKey:
+						appState.rpcPrivateKeyPkcs8 = responseMsg.RpcPrivateKey
+						appState.rpcCertificate.PrivateKey = key
+						fmt.Printf("Automatic bootstrap successful...\n")
+					default:
+						fmt.Printf("tls: found unknown private key type in PKCS#8 wrapping\n")
+					}
+				}
+			}
+		}
+	}
+}
+
+// https://stackoverflow.com/questions/23558425/how-do-i-get-the-local-ip-address-in-go
+// Get preferred outbound ip of this machine
+func _getOutboundIP() net.IP {
+	conn, err := net.Dial("udp", "8.8.8.8:80")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer conn.Close()
+
+	localAddr := conn.LocalAddr().(*net.UDPAddr)
+
+	return localAddr.IP
+}
+
+func _synchronizeNow(appState *appState) error {
+	fmt.Printf("Requesting synchronization from %s.\n", appState.bootstrapHost)
+
+	marshaller := &jsonpb.Marshaler{}
+	request := &vssmpb.SynchronizeStateRequest{
+		ClientIp: _getOutboundIP().String(),
+	}
+	requestStr, err := marshaller.MarshalToString(request)
+	if err != nil {
+		return err
+	}
+
+	trustStore := x509.NewCertPool()
+	trustStore.AddCert(appState.rpcCertificate.Leaf)
+
+	client := &http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{
+				Certificates: []tls.Certificate{appState.rpcCertificate},
+				RootCAs:      trustStore,
+				ServerName:   "VSSM",
+			},
+		},
+	}
+
+	response, err := client.Post("https://"+appState.bootstrapHost+":8082/REST/v1/internal/synchronizestate", "application/json",
+		strings.NewReader(requestStr))
+	if err != nil {
+		return err
+	}
+	if response.StatusCode != 200 {
+		return fmt.Errorf("Bad status code: %d", response.StatusCode)
+	}
+
+	var responseMsg vssmpb.SynchronizeStateResponse
+	err = jsonpb.Unmarshal(response.Body, &responseMsg)
+	response.Body.Close()
+	if err != nil {
+		return err
+	} else {
+		err = synchronizeStateFromResponse(appState, &responseMsg)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func synchronizeStateFromResponse(appState *appState, responseMsg *vssmpb.SynchronizeStateResponse) error {
+	myIp := _getOutboundIP().String()
+	for _, client := range responseMsg.KnownClients {
+		if client == myIp {
+			continue
+		}
+
+		alreadyKnown := false
+		for _, knownClient := range appState.knownClients {
+			if knownClient == client {
+				alreadyKnown = true
+				break
+			}
+		}
+		if !alreadyKnown {
+			appState.knownClients = append(appState.knownClients, client)
+		}
+	}
+	{
+		newMap := make(map[string]*SymmetricKey)
+		for name, key := range appState.keyStore.symmetricKeys {
+			newMap[name] = key
+		}
+		for _, key := range responseMsg.SymmetricKey {
+			remoteModified := timeOfUnixMillis(key.CreatedAt)
+			if _, exists := newMap[key.Name]; !exists || newMap[key.Name].createdAt.Before(remoteModified) {
+				newMap[key.Name] = &SymmetricKey{
+					key:       key.Key,
+					createdAt: remoteModified,
+				}
+			}
+		}
+		appState.keyStore.symmetricKeys = newMap
+	}
+	{
+		newMap := make(map[string]*AsymmetricKey)
+		for name, key := range appState.keyStore.asymmetricKeys {
+			newMap[name] = key
+		}
+		for _, key := range responseMsg.AsymmetricKey {
+			remoteModified := timeOfUnixMillis(key.CreatedAt)
+			if _, exists := newMap[key.Name]; !exists || newMap[key.Name].createdAt.Before(remoteModified) {
+				privateKey, err := x509.ParsePKCS8PrivateKey(key.Key)
+				if err == nil {
+					newMap[key.Name] = &AsymmetricKey{
+						key:        privateKey,
+						pkcs8Bytes: key.Key,
+						keyType:    key.KeyType,
+						createdAt:  remoteModified,
+					}
+				}
+			}
+		}
+		appState.keyStore.asymmetricKeys = newMap
+	}
+	{
+		newMap := make(map[string]*MacKey)
+		for name, key := range appState.keyStore.macKeys {
+			newMap[name] = key
+		}
+		for _, key := range responseMsg.MacKey {
+			remoteModified := timeOfUnixMillis(key.CreatedAt)
+			if _, exists := newMap[key.Name]; !exists || newMap[key.Name].createdAt.Before(remoteModified) {
+				newMap[key.Name] = &MacKey{
+					key:       key.Key,
+					createdAt: time.Unix(key.CreatedAt/1000, (key.CreatedAt%1000)*1e6),
+				}
+			}
+		}
+		appState.keyStore.macKeys = newMap
+	}
+
+	return nil
+}
+
+func pushSyncNow(appState *appState) error {
+	myIp := _getOutboundIP().String()
+	for _, ip := range appState.knownClients {
+		if ip == myIp {
+			continue
+		}
+
+		fmt.Printf("Pushing state synchronization to %s.\n", ip)
+
+		marshaller := &jsonpb.Marshaler{}
+		request := &vssmpb.SynchronizeStatePushRequest{
+			SynchronizeStateMessage: appStateToSynchronizeMessage(appState),
+		}
+
+		requestStr, err := marshaller.MarshalToString(request)
+		if err != nil {
+			return err
+		}
+
+		trustStore := x509.NewCertPool()
+		trustStore.AddCert(appState.rpcCertificate.Leaf)
+
+		client := &http.Client{
+			Transport: &http.Transport{
+				TLSClientConfig: &tls.Config{
+					Certificates: []tls.Certificate{appState.rpcCertificate},
+					RootCAs:      trustStore,
+					ServerName:   "VSSM",
+				},
+			},
+		}
+
+		response, err := client.Post("https://"+ip+":8082/REST/v1/internal/synchronizestatepush", "application/json",
+			strings.NewReader(requestStr))
+		if err != nil {
+			fmt.Printf("Failed to push synchronization: %s\n", err)
+			continue
+		}
+		if response.StatusCode != 200 {
+			fmt.Printf("Failed to push synchronization, bad status: %s\n", response.Status)
+			continue
+		}
+
+		var responseMsg vssmpb.SynchronizeStatePushResponse
+		err = jsonpb.Unmarshal(response.Body, &responseMsg)
+		response.Body.Close()
+		if err != nil {
+			fmt.Printf("Failed to parse push synchronization response: %s\n", err)
+			continue
+		} else {
+			// Do nothing with the response; presentl it is empty
+		}
+	}
+
+	return nil
+}
+
+func startApp(appState *appState) {
+
+	fmt.Printf("Entering normal application running state...\n")
+	shutdownChannel := make(chan bool)
+
+	var internalSvc vssmpb.InternalServiceServer
+	internalSvc = &InternalServiceImpl{appState}
+
+	var service vssmpb.VssmServiceServer
+	service = &VssmServiceImpl{appState}
+
+	var adminSvc vssmpb.AdminServiceServer
+	adminSvc = &AdminServiceImpl{appState}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/REST/v1/internal/bootstrapslave", serviceHandlerFor(
+		func() proto.Message { return &vssmpb.BootstrapSlaveRequest{} },
+		func(context context.Context, request proto.Message) (proto.Message, error) {
+			return internalSvc.BootstrapSlave(context, request.(*vssmpb.BootstrapSlaveRequest))
+		}))
+
+	internalCertPool := x509.NewCertPool()
+	internalCertPool.AddCert(appState.rpcCertificate.Leaf)
+	internalUnauthServer := &http.Server{
+		Addr:    ":8083",
+		Handler: mux,
+		TLSConfig: &tls.Config{
+			Certificates: []tls.Certificate{appState.rpcCertificate},
+			ClientAuth:   tls.NoClientCert,
+		},
+	}
+	go func() {
+		err := internalUnauthServer.ListenAndServeTLS("", "")
+		if err != nil {
+			fmt.Printf("Error listening: %v\n", err)
+		}
+		shutdownChannel <- true
+	}()
+
+	mux = http.NewServeMux()
+	mux.HandleFunc("/REST/v1/internal/synchronizestate", serviceHandlerFor(
+		func() proto.Message { return &vssmpb.SynchronizeStateRequest{} },
+		func(context context.Context, request proto.Message) (proto.Message, error) {
+			return internalSvc.SynchronizeState(context, request.(*vssmpb.SynchronizeStateRequest))
+		}))
+	mux.HandleFunc("/REST/v1/internal/synchronizestatepush", serviceHandlerFor(
+		func() proto.Message { return &vssmpb.SynchronizeStatePushRequest{} },
+		func(context context.Context, request proto.Message) (proto.Message, error) {
+			return internalSvc.SynchronizeStatePush(context, request.(*vssmpb.SynchronizeStatePushRequest))
+		}))
+
+	internalAuthServer := &http.Server{
+		Addr:    ":8082",
+		Handler: mux,
+		TLSConfig: &tls.Config{
+			Certificates: []tls.Certificate{appState.rpcCertificate},
+			ClientAuth:   tls.RequireAndVerifyClientCert,
+			ClientCAs:    internalCertPool,
+		},
+	}
+	go func() {
+		err := internalAuthServer.ListenAndServeTLS("", "")
+		if err != nil {
+			fmt.Printf("Error listening: %v\n", err)
+		}
+		shutdownChannel <- true
+	}()
+
+	mux = http.NewServeMux()
+	mux.HandleFunc("/REST/v1/symmetric/encrypt", serviceHandlerFor(
+		func() proto.Message { return &vssmpb.SymmetricEncryptRequest{} },
+		func(context context.Context, request proto.Message) (proto.Message, error) {
+			return service.SymmetricEncrypt(context, request.(*vssmpb.SymmetricEncryptRequest))
+		}))
+	mux.HandleFunc("/REST/v1/symmetric/decrypt", serviceHandlerFor(
+		func() proto.Message { return &vssmpb.SymmetricDecryptRequest{} },
+		func(context context.Context, request proto.Message) (proto.Message, error) {
+			return service.SymmetricDecrypt(context, request.(*vssmpb.SymmetricDecryptRequest))
+		}))
+	mux.HandleFunc("/REST/v1/asymmetric/encrypt", serviceHandlerFor(
+		func() proto.Message { return &vssmpb.AsymmetricEncryptRequest{} },
+		func(context context.Context, request proto.Message) (proto.Message, error) {
+			return service.AsymmetricEncrypt(context, request.(*vssmpb.AsymmetricEncryptRequest))
+		}))
+	mux.HandleFunc("/REST/v1/asymmetric/decrypt", serviceHandlerFor(
+		func() proto.Message { return &vssmpb.AsymmetricDecryptRequest{} },
+		func(context context.Context, request proto.Message) (proto.Message, error) {
+			return service.AsymmetricDecrypt(context, request.(*vssmpb.AsymmetricDecryptRequest))
+		}))
+	mux.HandleFunc("/REST/v1/asymmetric/sign", serviceHandlerFor(
+		func() proto.Message { return &vssmpb.AsymmetricSignRequest{} },
+		func(context context.Context, request proto.Message) (proto.Message, error) {
+			return service.AsymmetricSign(context, request.(*vssmpb.AsymmetricSignRequest))
+		}))
+	mux.HandleFunc("/REST/v1/asymmetric/verify", serviceHandlerFor(
+		func() proto.Message { return &vssmpb.AsymmetricVerifyRequest{} },
+		func(context context.Context, request proto.Message) (proto.Message, error) {
+			return service.AsymmetricVerify(context, request.(*vssmpb.AsymmetricVerifyRequest))
+		}))
+	mux.HandleFunc("/REST/v1/hmac/create", serviceHandlerFor(
+		func() proto.Message { return &vssmpb.HmacCreateRequest{} },
+		func(context context.Context, request proto.Message) (proto.Message, error) {
+			return service.HmacCreate(context, request.(*vssmpb.HmacCreateRequest))
+		}))
+	mux.HandleFunc("/REST/v1/hmac/verify", serviceHandlerFor(
+		func() proto.Message { return &vssmpb.HmacVerifyRequest{} },
+		func(context context.Context, request proto.Message) (proto.Message, error) {
+			return service.HmacVerify(context, request.(*vssmpb.HmacVerifyRequest))
+		}))
+
+	mux.HandleFunc("/REST/v1/admin/generatekey", serviceHandlerFor(
+		func() proto.Message { return &vssmpb.GenerateKeyRequest{} },
+		func(context context.Context, request proto.Message) (proto.Message, error) {
+			return adminSvc.GenerateKey(context, request.(*vssmpb.GenerateKeyRequest))
+		}))
+	mux.HandleFunc("/REST/v1/admin/injectkey", serviceHandlerFor(
+		func() proto.Message { return &vssmpb.InjectKeyRequest{} },
+		func(context context.Context, request proto.Message) (proto.Message, error) {
+			return adminSvc.InjectKey(context, request.(*vssmpb.InjectKeyRequest))
+		}))
+	mux.HandleFunc("/REST/v1/admin/generatebackup", serviceHandlerFor(
+		func() proto.Message { return &vssmpb.GenerateBackupRequest{} },
+		func(context context.Context, request proto.Message) (proto.Message, error) {
+			return adminSvc.GenerateBackup(context, request.(*vssmpb.GenerateBackupRequest))
+		}))
+	mux.HandleFunc("/REST/v1/admin/restorebackup", serviceHandlerFor(
+		func() proto.Message { return &vssmpb.RestoreBackupRequest{} },
+		func(context context.Context, request proto.Message) (proto.Message, error) {
+			return adminSvc.RestoreBackup(context, request.(*vssmpb.RestoreBackupRequest))
+		}))
+	mux.HandleFunc("/REST/v1/admin/listkeys", serviceHandlerFor(
+		func() proto.Message { return &vssmpb.ListKeysRequest{} },
+		func(context context.Context, request proto.Message) (proto.Message, error) {
+			return adminSvc.ListKeys(context, request.(*vssmpb.ListKeysRequest))
+		}))
+
+	server := &http.Server{
+		Addr:    ":8080",
+		Handler: mux,
+		TLSConfig: &tls.Config{
+			Certificates: []tls.Certificate{appState.rpcCertificate},
+			ClientAuth:   tls.RequireAndVerifyClientCert,
+			ClientCAs:    appState.clientTrustStore,
+		},
+		ReadTimeout:    10 * time.Second,
+		WriteTimeout:   10 * time.Second,
+		MaxHeaderBytes: 1 << 20,
+	}
+	go func() {
+		err := server.ListenAndServeTLS("", "")
+		if err != nil {
+			fmt.Printf("Error listening: %v\n", err)
+		}
+		shutdownChannel <- true
+	}()
+
+	go func() {
+		for true {
+			err := _synchronizeNow(appState)
+			if err != nil {
+				fmt.Printf("Error during synchronization: %v\n", err)
+			}
+			time.Sleep(5 * time.Minute)
+			time.Sleep((time.Duration)(mathrand.Int63n(300)) * time.Second)
+		}
+	}()
+
+	appState.status = STATUS_RUNNING
+
+	<-shutdownChannel
+	<-shutdownChannel
+}
