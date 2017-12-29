@@ -290,6 +290,9 @@ func (s *AdminServiceImpl) RestoreBackup(ctx context.Context, request *vssmpb.Re
 		return nil, err
 	}
 
+	// Push a synchronization update to all other known hosts
+	pushSyncNow(s.appState)
+
 	return &vssmpb.RestoreBackupResponse{}, nil
 }
 
