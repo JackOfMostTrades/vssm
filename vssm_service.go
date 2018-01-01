@@ -223,6 +223,10 @@ func (s *VssmServiceImpl) AsymmetricEncrypt(ctx context.Context, request *vssmpb
 			hash = crypto.SHA1
 		} else if algParts[1] == "SHA256" {
 			hash = crypto.SHA256
+		} else if algParts[1] == "SHA384" {
+			hash = crypto.SHA384
+		} else if algParts[1] == "SHA512" {
+			hash = crypto.SHA512
 		} else {
 			return nil, fmt.Errorf("Invalid hash algorithm: %s", algParts[1])
 		}
@@ -265,6 +269,10 @@ func (s *VssmServiceImpl) AsymmetricDecrypt(ctx context.Context, request *vssmpb
 			hash = crypto.SHA1
 		} else if algParts[1] == "SHA256" {
 			hash = crypto.SHA256
+		} else if algParts[1] == "SHA384" {
+			hash = crypto.SHA384
+		} else if algParts[1] == "SHA512" {
+			hash = crypto.SHA512
 		} else {
 			return nil, fmt.Errorf("Invalid hash algorithm: %s", algParts[1])
 		}
@@ -336,6 +344,12 @@ func (s *VssmServiceImpl) AsymmetricSign(ctx context.Context, request *vssmpb.As
 	} else if request.Algorithm == "SHA256withRSA" {
 		hash = crypto.SHA256
 		signer = rsaSigner
+	} else if request.Algorithm == "SHA384withRSA" {
+		hash = crypto.SHA384
+		signer = rsaSigner
+	} else if request.Algorithm == "SHA512withRSA" {
+		hash = crypto.SHA512
+		signer = rsaSigner
 	} else if request.Algorithm == "SHA1withECDSA" {
 		hash = crypto.SHA1
 		signer = ecdsaSigner
@@ -393,6 +407,12 @@ func (s *VssmServiceImpl) AsymmetricVerify(ctx context.Context, request *vssmpb.
 		verifier = rsaVerifier
 	} else if request.Algorithm == "SHA256withRSA" {
 		hash = crypto.SHA256
+		verifier = rsaVerifier
+	} else if request.Algorithm == "SHA384withRSA" {
+		hash = crypto.SHA384
+		verifier = rsaVerifier
+	} else if request.Algorithm == "SHA512withRSA" {
+		hash = crypto.SHA512
 		verifier = rsaVerifier
 	} else if request.Algorithm == "SHA1withECDSA" {
 		hash = crypto.SHA1
@@ -458,6 +478,10 @@ func (s *VssmServiceImpl) HmacVerify(ctx context.Context, request *vssmpb.HmacVe
 		hash = crypto.SHA1
 	} else if request.Algorithm == "SHA256" {
 		hash = crypto.SHA256
+	} else if request.Algorithm == "SHA384" {
+		hash = crypto.SHA384
+	} else if request.Algorithm == "SHA512" {
+		hash = crypto.SHA512
 	} else {
 		return nil, fmt.Errorf("Invalid algorithm: %s", request.Algorithm)
 	}
