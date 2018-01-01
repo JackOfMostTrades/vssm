@@ -16,8 +16,6 @@ type InternalServiceImpl struct {
 
 func (s *InternalServiceImpl) BootstrapSlave(ctx context.Context, request *vssmpb.BootstrapSlaveRequest) (*vssmpb.BootstrapSlaveResponse, error) {
 
-	s.appState.logger.Debug("ClientCms=%s", base64.StdEncoding.EncodeToString(request.ClientCms))
-
 	p7, err := pkcs7.Parse(request.ClientCms)
 	if err != nil {
 		return nil, err

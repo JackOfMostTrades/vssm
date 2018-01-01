@@ -4,6 +4,7 @@ import (
 	"crypto"
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/des"
 	"crypto/ecdsa"
 	"crypto/hmac"
 	"crypto/rand"
@@ -23,6 +24,7 @@ type VssmServiceImpl struct {
 
 func (s *VssmServiceImpl) SymmetricEncrypt(ctx context.Context, request *vssmpb.SymmetricEncryptRequest) (*vssmpb.SymmetricEncryptResponse, error) {
 	algParts := strings.Split(request.Algorithm, "/")
+	var err error
 	var key *SymmetricKey
 	var ok bool
 	if key, ok = s.appState.keyStore.symmetricKeys[request.KeyName]; !ok {
@@ -31,13 +33,25 @@ func (s *VssmServiceImpl) SymmetricEncrypt(ctx context.Context, request *vssmpb.
 	if len(algParts) != 3 {
 		return nil, fmt.Errorf("Invalid algorithm specification: %s", request.Algorithm)
 	}
-	if algParts[0] != "AES" {
-		return nil, fmt.Errorf("Invalid cipher: %s", algParts[0])
-	}
 
-	c, err := aes.NewCipher(key.key)
-	if err != nil {
-		return nil, err
+	var c cipher.Block
+	if algParts[0] == "AES" {
+		c, err = aes.NewCipher(key.key)
+		if err != nil {
+			return nil, err
+		}
+	} else if algParts[0] == "DES" {
+		c, err = des.NewCipher(key.key)
+		if err != nil {
+			return nil, err
+		}
+	} else if algParts[0] == "3DES" {
+		c, err = des.NewTripleDESCipher(key.key)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		return nil, fmt.Errorf("Invalid cipher: %s", algParts[0])
 	}
 
 	var paddedInput []byte
@@ -53,7 +67,25 @@ func (s *VssmServiceImpl) SymmetricEncrypt(ctx context.Context, request *vssmpb.
 	}
 
 	var output []byte
-	if algParts[1] == "CBC" {
+	if algParts[1] == "ECB" {
+		bs := c.BlockSize()
+		output := make([]byte, len(paddedInput))
+		for i := 0; i < len(paddedInput); i += bs {
+			c.Encrypt(output[i:i+bs], paddedInput[i:i+bs])
+		}
+	} else if algParts[1] == "CTR" {
+		iv := make([]byte, c.BlockSize())
+		if n, err := rand.Read(iv); n != len(iv) || err != nil {
+			if err != nil {
+				return nil, err
+			}
+			return nil, fmt.Errorf("Unable to generate random IV bytes.")
+		}
+		streamCipher := cipher.NewCTR(c, iv)
+		output = make([]byte, len(iv)+len(paddedInput))
+		copy(output, iv)
+		streamCipher.XORKeyStream(output[len(iv):], paddedInput)
+	} else if algParts[1] == "CBC" {
 		iv := make([]byte, c.BlockSize())
 		if n, err := rand.Read(iv); n != len(iv) || err != nil {
 			if err != nil {
@@ -91,6 +123,7 @@ func (s *VssmServiceImpl) SymmetricEncrypt(ctx context.Context, request *vssmpb.
 }
 func (s *VssmServiceImpl) SymmetricDecrypt(ctx context.Context, request *vssmpb.SymmetricDecryptRequest) (*vssmpb.SymmetricDecryptResponse, error) {
 	algParts := strings.Split(request.Algorithm, "/")
+	var err error
 	var key *SymmetricKey
 	var ok bool
 	if key, ok = s.appState.keyStore.symmetricKeys[request.KeyName]; !ok {
@@ -99,17 +132,40 @@ func (s *VssmServiceImpl) SymmetricDecrypt(ctx context.Context, request *vssmpb.
 	if len(algParts) != 3 {
 		return nil, fmt.Errorf("Invalid algorithm specification: %s", request.Algorithm)
 	}
-	if algParts[0] != "AES" {
+	var c cipher.Block
+	if algParts[0] == "AES" {
+		c, err = aes.NewCipher(key.key)
+		if err != nil {
+			return nil, err
+		}
+	} else if algParts[0] == "DES" {
+		c, err = des.NewCipher(key.key)
+		if err != nil {
+			return nil, err
+		}
+	} else if algParts[0] == "3DES" {
+		c, err = des.NewTripleDESCipher(key.key)
+		if err != nil {
+			return nil, err
+		}
+	} else {
 		return nil, fmt.Errorf("Invalid cipher: %s", algParts[0])
 	}
 
-	c, err := aes.NewCipher(key.key)
-	if err != nil {
-		return nil, err
-	}
-
 	var output []byte
-	if algParts[1] == "CBC" {
+	if algParts[1] == "ECB" {
+		bs := c.BlockSize()
+		output := make([]byte, len(request.Input))
+		for i := 0; i < len(request.Input); i += bs {
+			c.Decrypt(output[i:i+bs], request.Input[i:i+bs])
+		}
+	} else if algParts[1] == "CTR" {
+		iv := request.Input[0:c.BlockSize()]
+		input := request.Input[c.BlockSize():]
+		streamCipher := cipher.NewCTR(c, iv)
+		output = make([]byte, len(input))
+		streamCipher.XORKeyStream(output, input)
+	} else if algParts[1] == "CBC" {
 		iv := request.Input[0:c.BlockSize()]
 		input := request.Input[c.BlockSize():]
 		blockCipher := cipher.NewCBCDecrypter(c, iv)
