@@ -16,7 +16,7 @@ const (
 )
 
 type appState struct {
-	logger             *logging.Logger
+	logger             logging.Logger
 	status             AppStatus
 	rpcPrivateKeyPkcs8 []byte
 	rpcCertificate     tls.Certificate

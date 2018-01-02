@@ -69,7 +69,7 @@ func (s *VssmServiceImpl) SymmetricEncrypt(ctx context.Context, request *vssmpb.
 	var output []byte
 	if algParts[1] == "ECB" {
 		bs := c.BlockSize()
-		output := make([]byte, len(paddedInput))
+		output = make([]byte, len(paddedInput))
 		for i := 0; i < len(paddedInput); i += bs {
 			c.Encrypt(output[i:i+bs], paddedInput[i:i+bs])
 		}
@@ -155,7 +155,7 @@ func (s *VssmServiceImpl) SymmetricDecrypt(ctx context.Context, request *vssmpb.
 	var output []byte
 	if algParts[1] == "ECB" {
 		bs := c.BlockSize()
-		output := make([]byte, len(request.Input))
+		output = make([]byte, len(request.Input))
 		for i := 0; i < len(request.Input); i += bs {
 			c.Decrypt(output[i:i+bs], request.Input[i:i+bs])
 		}
@@ -454,6 +454,10 @@ func (s *VssmServiceImpl) HmacCreate(ctx context.Context, request *vssmpb.HmacCr
 		hash = crypto.SHA1
 	} else if request.Algorithm == "SHA256" {
 		hash = crypto.SHA256
+	} else if request.Algorithm == "SHA384" {
+		hash = crypto.SHA384
+	} else if request.Algorithm == "SHA512" {
+		hash = crypto.SHA512
 	} else {
 		return nil, fmt.Errorf("Invalid algorithm: %s", request.Algorithm)
 	}
