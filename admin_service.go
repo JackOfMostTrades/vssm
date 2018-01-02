@@ -219,7 +219,7 @@ func (s *AdminServiceImpl) InjectKey(ctx context.Context, request *vssmpb.Inject
 		return nil, fmt.Errorf("Invalid key type: %s", request.KeyType)
 	}
 
-	return nil, errors.New("Unimplemented")
+	return &vssmpb.InjectKeyResponse{}, nil
 }
 
 func (s *AdminServiceImpl) GenerateBackup(ctx context.Context, request *vssmpb.GenerateBackupRequest) (*vssmpb.GenerateBackupResponse, error) {
