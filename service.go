@@ -18,6 +18,14 @@ import (
 	"time"
 )
 
+type vssmService struct {
+	shutdownChannel      <-chan bool
+	healthcheckServer    *http.Server
+	internalUnauthServer *http.Server
+	internalAuthServer   *http.Server
+	server               *http.Server
+}
+
 func serviceHandlerFor(requestType func() proto.Message, handler func(context.Context, proto.Message) (proto.Message, error)) func(w http.ResponseWriter, r *http.Request) {
 	marshaller := &jsonpb.Marshaler{}
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -44,17 +52,39 @@ func serviceHandlerFor(requestType func() proto.Message, handler func(context.Co
 	}
 }
 
-func vssmInit(appState *appState) {
+func vssmInit(appState *appState) *vssmService {
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/REST/v1/healthcheck", func(w http.ResponseWriter, r *http.Request) {
+		switch appState.status {
+		case STATUS_BOOTSTRAPPING:
+			w.WriteHeader(http.StatusServiceUnavailable)
+			w.Write(([]byte)("bootstrapping"))
+		case STATUS_RUNNING:
+			w.WriteHeader(http.StatusOK)
+			w.Write(([]byte)("running"))
+		}
+	})
+	healthcheckServer := &http.Server{
+		Addr:    ":8081",
+		Handler: mux,
+	}
+	go func() {
+		err := healthcheckServer.ListenAndServe()
+		if err != nil {
+			appState.logger.Error("Error listening: %v", err)
+		}
+	}()
 
 	attestation, err := appState.cloudProvider.GetAttestation()
 	if err != nil {
 		appState.logger.Fatal("Unable to get CMS document: %v", err)
-		return
+		return nil
 	}
 
 	bootstrapChannel := make(chan bool, 1)
 	shutdownChannel := make(chan bool)
-	mux := http.NewServeMux()
+	mux = http.NewServeMux()
 	mux.HandleFunc("/REST/v1/admin/bootstrap", func(w http.ResponseWriter, r *http.Request) {
 		marshaller := &jsonpb.Marshaler{}
 		request := vssmpb.BootstrapRequest{}
@@ -93,7 +123,7 @@ func vssmInit(appState *appState) {
 	bootstrapCert, err := generateSelfSigned()
 	if err != nil {
 		appState.logger.Fatal("Unable to generate self-signed certificate for bootstrapping: %s", err)
-		return
+		return nil
 	}
 	s := &http.Server{
 		Addr:    ":8080",
@@ -146,7 +176,10 @@ func vssmInit(appState *appState) {
 	ticker.Stop()
 	s.Shutdown(context.Background())
 	<-shutdownChannel
-	startApp(appState)
+
+	service := startApp(appState)
+	service.healthcheckServer = healthcheckServer
+	return service
 }
 
 func _chooseRandomPeer(appState *appState) (string, error) {
@@ -401,7 +434,7 @@ func pushSyncNow(appState *appState) error {
 	return nil
 }
 
-func startApp(appState *appState) {
+func startApp(appState *appState) *vssmService {
 
 	appState.logger.Info("Entering normal application running state...")
 	shutdownChannel := make(chan bool)
@@ -575,6 +608,26 @@ func startApp(appState *appState) {
 
 	appState.status = STATUS_RUNNING
 
-	<-shutdownChannel
-	<-shutdownChannel
+	return &vssmService{
+		internalUnauthServer: internalUnauthServer,
+		internalAuthServer:   internalAuthServer,
+		server:               server,
+
+		shutdownChannel: shutdownChannel,
+	}
+}
+
+func (s *vssmService) WaitForShutdown() {
+	<-s.shutdownChannel
+	<-s.shutdownChannel
+	<-s.shutdownChannel
+}
+
+func (s *vssmService) ShutdownNow() {
+	s.healthcheckServer.Shutdown(nil)
+	s.internalUnauthServer.Shutdown(nil)
+	s.internalAuthServer.Shutdown(nil)
+	s.server.Shutdown(nil)
+
+	s.WaitForShutdown()
 }

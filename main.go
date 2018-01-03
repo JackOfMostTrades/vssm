@@ -6,7 +6,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"io/ioutil"
-	"net/http"
 	"os"
 	"stash.corp.netflix.com/ps/vssm/awsprov"
 	"stash.corp.netflix.com/ps/vssm/cloud"
@@ -96,27 +95,6 @@ func main() {
 		appState.clientTrustStore.AddCert(cert)
 	}
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("/REST/v1/healthcheck", func(w http.ResponseWriter, r *http.Request) {
-		switch appState.status {
-		case STATUS_BOOTSTRAPPING:
-			w.WriteHeader(http.StatusServiceUnavailable)
-			w.Write(([]byte)("bootstrapping"))
-		case STATUS_RUNNING:
-			w.WriteHeader(http.StatusOK)
-			w.Write(([]byte)("running"))
-		}
-	})
-	s := &http.Server{
-		Addr:    ":8081",
-		Handler: mux,
-	}
-	go func() {
-		err := s.ListenAndServe()
-		if err != nil {
-			logger.Error("Error listening: %v", err)
-		}
-	}()
-
-	vssmInit(appState)
+	service := vssmInit(appState)
+	service.WaitForShutdown()
 }
