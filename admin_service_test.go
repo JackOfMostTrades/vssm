@@ -250,10 +250,7 @@ func TestInjectKey(t *testing.T) {
 			if priv.Curve != ecPrivKey.Curve ||
 				!bytes.Equal(priv.D.Bytes(), ecPrivKey.D.Bytes()) ||
 				!bytes.Equal(priv.X.Bytes(), ecPrivKey.X.Bytes()) ||
-				!bytes.Equal(priv.Y.Bytes(), ecPrivKey.Y.Bytes()) ||
-				!bytes.Equal(priv.PublicKey.X.Bytes(), ecPrivKey.PublicKey.X.Bytes()) ||
-				!bytes.Equal(priv.PublicKey.Y.Bytes(), ecPrivKey.PublicKey.Y.Bytes()) {
-
+				!bytes.Equal(priv.Y.Bytes(), ecPrivKey.Y.Bytes()) {
 				t.Fatal("Injected ECDSA key does not match generated ECDSA key.")
 			}
 		}
@@ -389,8 +386,7 @@ func TestGenerateAndRestoreBackup(t *testing.T) {
 		if newEcdsaKey.Curve != oldEcdsaKey.Curve ||
 			!bytes.Equal(newEcdsaKey.X.Bytes(), oldEcdsaKey.X.Bytes()) ||
 			!bytes.Equal(newEcdsaKey.Y.Bytes(), oldEcdsaKey.Y.Bytes()) ||
-			!bytes.Equal(newEcdsaKey.PublicKey.X.Bytes(), oldEcdsaKey.PublicKey.X.Bytes()) ||
-			!bytes.Equal(newEcdsaKey.PublicKey.Y.Bytes(), oldEcdsaKey.PublicKey.Y.Bytes()) {
+			!bytes.Equal(newEcdsaKey.D.Bytes(), oldEcdsaKey.D.Bytes()) {
 			t.Fatal("ECDSA key not correctly restored.")
 		}
 	}
