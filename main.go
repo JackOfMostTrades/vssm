@@ -5,12 +5,12 @@ import (
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
-	"github.com/fullsailor/pkcs7"
 	"io/ioutil"
 	"net/http"
 	"os"
+	"stash.corp.netflix.com/ps/vssm/awsprov"
+	"stash.corp.netflix.com/ps/vssm/cloud"
 	"stash.corp.netflix.com/ps/vssm/logging"
-	"strings"
 )
 
 func main() {
@@ -26,40 +26,18 @@ func main() {
 		},
 	}
 
+	var cloudProvider cloud.CloudProvider
 	if len(os.Args) > 1 && os.Args[1] == "--dev" {
-		appState.myAmi = ""
-		appState.myIp = "127.0.0.1"
-		appState.myRegion = ""
-		appState.myAsg = ""
+		cloudProvider = &localCloudProvider{}
 	} else {
-		bytes, err := getLocalCms()
+		var err error
+		cloudProvider, err = awsprov.New()
 		if err != nil {
-			logger.Fatal("Unable to get CMS document: %v", err)
+			logger.Fatal("Unable to initialize AWS cloud provider: %v", err)
 			return
 		}
-		p7, err := pkcs7.Parse(bytes)
-		if err != nil {
-			logger.Fatal("Unable to parse CMS document: %v", err)
-			return
-		}
-		var metadata map[string]interface{}
-		err = json.Unmarshal(p7.Content, &metadata)
-		if err != nil {
-			logger.Fatal("Unable to parse CMS document: %v", err)
-			return
-		}
-		appState.myAmi = metadata["imageId"].(string)
-		appState.myIp = metadata["privateIp"].(string)
-		appState.myRegion = metadata["region"].(string)
-
-		instanceId := metadata["instanceId"].(string)
-		asg, err := GetInstanceAsg(appState.myRegion, instanceId)
-		if err != nil {
-			logger.Fatal("Unable to determine this instance's ASG: %v", err)
-			return
-		}
-		appState.myAsg = asg
 	}
+	appState.cloudProvider = cloudProvider
 
 	var configBytes []byte
 	if _, err := os.Stat("config.json"); err == nil {
@@ -141,22 +119,4 @@ func main() {
 	}()
 
 	vssmInit(appState)
-}
-
-func getLocalCms() ([]byte, error) {
-	response, err := http.Get("http://169.254.169.254/latest/dynamic/instance-identity/rsa2048")
-	if err != nil {
-		return nil, err
-	}
-	b64Bytes, err := ioutil.ReadAll(response.Body)
-	response.Body.Close()
-	if err != nil {
-		return nil, err
-	}
-	b64Str := strings.Replace((string)(b64Bytes), "\n", "", -1)
-	bytes, err := base64.StdEncoding.DecodeString(b64Str)
-	if err != nil {
-		return nil, err
-	}
-	return bytes, nil
 }

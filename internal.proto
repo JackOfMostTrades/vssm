@@ -11,7 +11,7 @@ service InternalService {
 }
 
 message BootstrapSlaveRequest {
-    bytes client_cms = 1;
+    bytes attestation = 1;
 }
 message BootstrapSlaveResponse {
     bytes rpc_private_key = 1;

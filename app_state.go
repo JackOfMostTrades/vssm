@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
+	"stash.corp.netflix.com/ps/vssm/cloud"
 	"stash.corp.netflix.com/ps/vssm/logging"
 	"time"
 )
@@ -23,12 +24,7 @@ type appState struct {
 	clientTrustStore   *x509.CertPool
 	rootPassword       string
 	keyStore           *keyStore
-
-	// Instance metadata
-	myIp     string
-	myAmi    string
-	myAsg    string
-	myRegion string
+	cloudProvider      cloud.CloudProvider
 }
 
 func (s *appState) serialize() []byte {

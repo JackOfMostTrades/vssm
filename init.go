@@ -46,16 +46,10 @@ func serviceHandlerFor(requestType func() proto.Message, handler func(context.Co
 
 func vssmInit(appState *appState) {
 
-	var metadataBytes []byte
-	if appState.myAmi != "" {
-		var err error
-		metadataBytes, err = getLocalCms()
-		if err != nil {
-			appState.logger.Fatal("Unable to get CMS document: %v", err)
-			return
-		}
-	} else {
-		metadataBytes = nil
+	attestation, err := appState.cloudProvider.GetAttestation()
+	if err != nil {
+		appState.logger.Fatal("Unable to get CMS document: %v", err)
+		return
 	}
 
 	bootstrapChannel := make(chan bool, 1)
@@ -124,7 +118,7 @@ func vssmInit(appState *appState) {
 	done := false
 	doBootstrapWork := func() {
 		if appState.rpcCertificate.PrivateKey == nil {
-			_attemptBootstrap(appState, metadataBytes)
+			_attemptBootstrap(appState, attestation)
 		}
 
 		if appState.rpcCertificate.PrivateKey != nil {
@@ -156,26 +150,21 @@ func vssmInit(appState *appState) {
 }
 
 func _chooseRandomPeer(appState *appState) (string, error) {
-	peers, err := GetPeers(appState.myRegion, appState.myAsg)
+	peers, err := appState.cloudProvider.GetPeers()
 	if err != nil {
 		return "", err
 	}
-	// Choose a random peer (that isn't myself)
-	if len(peers) == 0 || (len(peers) == 1 && peers[0] == appState.myIp) {
+	// Choose a random peer
+	if len(peers) == 0 {
 		return "", errors.New("No peers found.")
 	}
-
-	peer := appState.myIp
-	for peer == appState.myIp {
-		n := mathrand.Int31n(int32(len(peers)))
-		peer = peers[n]
-	}
-	return peer, nil
+	n := mathrand.Int31n(int32(len(peers)))
+	return peers[n], nil
 }
 
-func _attemptBootstrap(appState *appState, metadataBytes []byte) {
+func _attemptBootstrap(appState *appState, attestation []byte) {
 
-	peers, err := GetPeers(appState.myRegion, appState.myAsg)
+	peers, err := appState.cloudProvider.GetPeers()
 	if err != nil {
 		appState.logger.Error("Unable to get a peers for bootstrapping: %v", err)
 		return
@@ -183,7 +172,7 @@ func _attemptBootstrap(appState *appState, metadataBytes []byte) {
 
 	marshaller := &jsonpb.Marshaler{}
 	request := &vssmpb.BootstrapSlaveRequest{
-		ClientCms: metadataBytes,
+		Attestation: attestation,
 	}
 	requestStr, err := marshaller.MarshalToString(request)
 	if err != nil {
@@ -204,10 +193,6 @@ func _attemptBootstrap(appState *appState, metadataBytes []byte) {
 	}
 
 	for _, peer := range peers {
-		if peer == appState.myIp {
-			continue
-		}
-
 		appState.logger.Info("Attempting to bootstrap from %s...", peer)
 
 		response, err := client.Post("https://"+peer+":8083/REST/v1/internal/bootstrapslave", "application/json",
@@ -361,15 +346,11 @@ func synchronizeStateFromResponse(appState *appState, responseMsg *vssmpb.Synchr
 }
 
 func pushSyncNow(appState *appState) error {
-	peerIps, err := GetPeers(appState.myRegion, appState.myAsg)
+	peerIps, err := appState.cloudProvider.GetPeers()
 	if err != nil {
 		return err
 	}
 	for _, ip := range peerIps {
-		if ip == appState.myIp {
-			continue
-		}
-
 		appState.logger.Info("Pushing state synchronization to %s.", ip)
 
 		marshaller := &jsonpb.Marshaler{}

@@ -20,7 +20,12 @@ $(GOPATH)/src/%:
 	test -L $@ || ln -sf ../../.. $@
 
 fmt:
-	gofmt -s -w *.go
+	gofmt -s -w *.go awsprov/*.go cloud/*.go logging/*.go
+
+test:
+	cd $(GOPATH)/src/$(PACKAGE) && go test -v
+	cd $(GOPATH)/src/$(PACKAGE)/awsprov && go test -v
+	cd $(GOPATH)/src/$(PACKAGE)/logging && go test -v
 
 clean:
 	rm -rf pkg dist bin src ./$(NAME)

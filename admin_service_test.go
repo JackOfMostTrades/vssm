@@ -22,9 +22,10 @@ func TestGenerateKey(t *testing.T) {
 	}
 	service := AdminServiceImpl{
 		appState: &appState{
-			logger:       &stubLogger{},
-			rootPassword: calcScrypt("adminPassword"),
-			keyStore:     keyStore,
+			cloudProvider: &localCloudProvider{},
+			logger:        &stubLogger{},
+			rootPassword:  calcScrypt("adminPassword"),
+			keyStore:      keyStore,
 		},
 	}
 
@@ -141,9 +142,10 @@ func TestInjectKey(t *testing.T) {
 	}
 	service := AdminServiceImpl{
 		appState: &appState{
-			logger:       &stubLogger{},
-			rootPassword: calcScrypt("adminPassword"),
-			keyStore:     keyStore,
+			cloudProvider: &localCloudProvider{},
+			logger:        &stubLogger{},
+			rootPassword:  calcScrypt("adminPassword"),
+			keyStore:      keyStore,
 		},
 	}
 
@@ -287,8 +289,9 @@ func TestGenerateAndRestoreBackup(t *testing.T) {
 
 	service := AdminServiceImpl{
 		appState: &appState{
-			logger:       &stubLogger{},
-			rootPassword: calcScrypt("adminPassword"),
+			cloudProvider: &localCloudProvider{},
+			logger:        &stubLogger{},
+			rootPassword:  calcScrypt("adminPassword"),
 			keyStore: &keyStore{
 				symmetricKeys: map[string]*SymmetricKey{
 					"foo": {
