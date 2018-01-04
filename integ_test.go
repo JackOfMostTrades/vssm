@@ -12,6 +12,7 @@ import (
 	"github.com/golang/protobuf/proto"
 	"math/big"
 	"net/http"
+	"stash.corp.netflix.com/ps/vssm/scryptlib"
 	"stash.corp.netflix.com/ps/vssm/vssmpb"
 	"strings"
 	"testing"
@@ -177,7 +178,7 @@ func TestVssmService(t *testing.T) {
 			Leaf:        tlsCert.Leaf,
 		},
 		clientTrustStore: clientTrustStore,
-		rootPassword:     calcScrypt("adminPassword"),
+		rootPassword:     scryptlib.CalcScrypt("adminPassword"),
 		keyStore: &keyStore{
 			symmetricKeys:  make(map[string]*SymmetricKey),
 			asymmetricKeys: make(map[string]*AsymmetricKey),

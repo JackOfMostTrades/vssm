@@ -9,6 +9,7 @@ import (
 	"crypto/rsa"
 	"crypto/x509"
 	"stash.corp.netflix.com/ps/vssm/logging"
+	"stash.corp.netflix.com/ps/vssm/scryptlib"
 	"stash.corp.netflix.com/ps/vssm/vssmpb"
 	"strings"
 	"time"
@@ -24,7 +25,7 @@ func TestGenerateKey(t *testing.T) {
 		appState: &appState{
 			cloudProvider: &localCloudProvider{},
 			logger:        &stubLogger{},
-			rootPassword:  calcScrypt("adminPassword"),
+			rootPassword:  scryptlib.CalcScrypt("adminPassword"),
 			keyStore:      keyStore,
 		},
 	}
@@ -144,7 +145,7 @@ func TestInjectKey(t *testing.T) {
 		appState: &appState{
 			cloudProvider: &localCloudProvider{},
 			logger:        &stubLogger{},
-			rootPassword:  calcScrypt("adminPassword"),
+			rootPassword:  scryptlib.CalcScrypt("adminPassword"),
 			keyStore:      keyStore,
 		},
 	}
@@ -291,7 +292,7 @@ func TestGenerateAndRestoreBackup(t *testing.T) {
 		appState: &appState{
 			cloudProvider: &localCloudProvider{},
 			logger:        &stubLogger{},
-			rootPassword:  calcScrypt("adminPassword"),
+			rootPassword:  scryptlib.CalcScrypt("adminPassword"),
 			keyStore: &keyStore{
 				symmetricKeys: map[string]*SymmetricKey{
 					"foo": {
@@ -426,7 +427,7 @@ func TestListKeys(t *testing.T) {
 	service := AdminServiceImpl{
 		appState: &appState{
 			logger:       &stubLogger{},
-			rootPassword: calcScrypt("adminPassword"),
+			rootPassword: scryptlib.CalcScrypt("adminPassword"),
 			keyStore:     keyStore,
 		},
 	}
@@ -513,7 +514,7 @@ func TestGetLogs(t *testing.T) {
 	service := AdminServiceImpl{
 		appState: &appState{
 			logger:       logger,
-			rootPassword: calcScrypt("adminPassword"),
+			rootPassword: scryptlib.CalcScrypt("adminPassword"),
 		},
 	}
 	logger.Info("Test1")

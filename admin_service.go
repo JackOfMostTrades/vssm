@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"github.com/golang/protobuf/jsonpb"
 	"golang.org/x/net/context"
+	"stash.corp.netflix.com/ps/vssm/scryptlib"
 	"stash.corp.netflix.com/ps/vssm/vssmpb"
 	"time"
 )
@@ -24,7 +25,7 @@ type AdminServiceImpl struct {
 var ErrBadPassword = errors.New("Incorrect administrator password.")
 
 func (s *AdminServiceImpl) GenerateKey(ctx context.Context, request *vssmpb.GenerateKeyRequest) (*vssmpb.GenerateKeyResponse, error) {
-	if !verifyScrypt(request.AdminPassword, s.appState.rootPassword) {
+	if !scryptlib.VerifyScrypt(request.AdminPassword, s.appState.rootPassword) {
 		return nil, ErrBadPassword
 	}
 
@@ -160,7 +161,7 @@ func _addMacKey(keyStore *keyStore, keyName string, key *MacKey) {
 }
 
 func (s *AdminServiceImpl) InjectKey(ctx context.Context, request *vssmpb.InjectKeyRequest) (*vssmpb.InjectKeyResponse, error) {
-	if !verifyScrypt(request.AdminPassword, s.appState.rootPassword) {
+	if !scryptlib.VerifyScrypt(request.AdminPassword, s.appState.rootPassword) {
 		return nil, ErrBadPassword
 	}
 
@@ -223,7 +224,7 @@ func (s *AdminServiceImpl) InjectKey(ctx context.Context, request *vssmpb.Inject
 }
 
 func (s *AdminServiceImpl) GenerateBackup(ctx context.Context, request *vssmpb.GenerateBackupRequest) (*vssmpb.GenerateBackupResponse, error) {
-	if !verifyScrypt(request.AdminPassword, s.appState.rootPassword) {
+	if !scryptlib.VerifyScrypt(request.AdminPassword, s.appState.rootPassword) {
 		return nil, ErrBadPassword
 	}
 
@@ -266,7 +267,7 @@ func (s *AdminServiceImpl) GenerateBackup(ctx context.Context, request *vssmpb.G
 }
 
 func (s *AdminServiceImpl) RestoreBackup(ctx context.Context, request *vssmpb.RestoreBackupRequest) (*vssmpb.RestoreBackupResponse, error) {
-	if !verifyScrypt(request.AdminPassword, s.appState.rootPassword) {
+	if !scryptlib.VerifyScrypt(request.AdminPassword, s.appState.rootPassword) {
 		return nil, ErrBadPassword
 	}
 
@@ -359,7 +360,7 @@ func _encodePublicKey(priv interface{}) ([]byte, error) {
 }
 
 func (s *AdminServiceImpl) ListKeys(ctx context.Context, request *vssmpb.ListKeysRequest) (*vssmpb.ListKeysResponse, error) {
-	if !verifyScrypt(request.AdminPassword, s.appState.rootPassword) {
+	if !scryptlib.VerifyScrypt(request.AdminPassword, s.appState.rootPassword) {
 		return nil, ErrBadPassword
 	}
 
@@ -458,7 +459,7 @@ func (s *AdminServiceImpl) ListKeys(ctx context.Context, request *vssmpb.ListKey
 }
 
 func (s *AdminServiceImpl) GetLogs(ctx context.Context, request *vssmpb.GetLogsRequest) (*vssmpb.GetLogsResponse, error) {
-	if !verifyScrypt(request.AdminPassword, s.appState.rootPassword) {
+	if !scryptlib.VerifyScrypt(request.AdminPassword, s.appState.rootPassword) {
 		return nil, ErrBadPassword
 	}
 

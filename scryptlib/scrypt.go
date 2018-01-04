@@ -1,4 +1,4 @@
-package main
+package scryptlib
 
 import (
 	"crypto/hmac"
@@ -12,7 +12,7 @@ import (
 	"strings"
 )
 
-func calcScrypt(pwd string) string {
+func CalcScrypt(pwd string) string {
 	salt := make([]byte, 16)
 	if n, err := rand.Read(salt); n != len(salt) || err != nil {
 		if err != nil {
@@ -34,7 +34,7 @@ func calcScrypt(pwd string) string {
 		base64.StdEncoding.EncodeToString(val))
 }
 
-func verifyScrypt(pwd, hash string) bool {
+func VerifyScrypt(pwd, hash string) bool {
 	parts := strings.Split(hash, "$")
 	if len(parts) != 5 || parts[0] != "" {
 		panic(errors.New("Invalid hash string."))
