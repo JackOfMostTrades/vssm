@@ -161,4 +161,10 @@ The image this builds provides a minimal operating system that runs the vssm pro
 Secure Manual Bootstrapping
 =============================
 
-TODO
+In order to securely bootstrap a new cluster, you can use the `bootstrapper.bin` tool, built when you run `make`. This loads up a stub VSSM server that provides bootstrap functionality which trusts an AMI named by a command line flag. For example:
+
+    ./bootstrap.bin --amiName ami-0123456789 --privateKey server.key
+
+The privateKey parameter specifies the RPC private key.
+
+Obviously, in order to run this command the RPC private key will already need to be on the filesystem. Since you don't want to bundle this secret with an AMI, the assumption is that you will run this from an interactive instance. The intent is that you will startup an interactive instance, attach it to your VSSM cluster, startup the bootstrapper service, and then scale up your VSSM cluster. Once other nodes are online, you can tear down this interactive bootstrap service.
