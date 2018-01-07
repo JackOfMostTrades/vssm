@@ -154,7 +154,9 @@ To generate a self-signed certificate for use by VSSM you can run
 Secure Deployment
 =================
 
-TODO 
+To maintain the security of VSSM, it is important that no other access to the instance running VSSM be allowed. In particular this means instances should now have SSH enabled (otherwise an operator could simply SSH into an instance and dump process memory to extract the keystore, or even fetch the cloud provider's attestation credentials in order to get the keystore from another instance). Since VSSM is designed to be an isolated application, this repository also contains a set of scripts to build an image for deployment of VSSM. This can be found in the [image-builder](image-builder) directory.
+
+The image this builds provides a minimal operating system that runs the vssm process and nothing else. This provides a minimal attack surface and ensures that no additional services are present which may invalidate the security assumptions of VSSM. More information can be found in the [image-builder](image-builder) directory.
 
 Secure Manual Bootstrapping
 =============================
