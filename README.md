@@ -6,7 +6,7 @@ VSSM is a virtualized software security module. It is meant to replicate many fe
 VSSM has the following properties:
 
 * An API for standard cryptographic operations: symmetric and asymmetric encryption/decryption, asymmetric sign/verify, and HMAC create/verify.
-* Non-exportable secrets. That is, there is no API for exporting key material used in the above operations. Thus, as with an HSM, it is impossible for even administrative operators to extract key material. (Note that )
+* Non-exportable secrets. As with an HSM, it is impossible for even administrative operators to extract key material. (Though, make sure you read all the docs to understand some gotchas.)
 * Auto-scalable architecture. VSSM uses a cloud-provider mechanism for attestation so that existing instances of VSSM can supply key material to new instances.
 
 When an instance of VSSM first comes online, it needs to bootstrap itself. This can be one in one of two ways.
@@ -76,6 +76,7 @@ For example:
 
 The following endpoints correspond to the VssmService methods defined in [vssm.proto](vssm.proto).
 
+|                   |                             |
 | ----------------- | --------------------------- |
 | SymmetricEncrypt  | /REST/v1/symmetric/encrypt  |
 | SymmetricDecrypt  | /REST/v1/symmetric/decrypt  |
@@ -88,6 +89,7 @@ The following endpoints correspond to the VssmService methods defined in [vssm.p
 
 The following endpoints correspond to the AdminService methods defined in [vssm.proto](vssm.proto).
 
+|                |                               |
 | -------------- | ----------------------------- |
 | GenerateKey    | /REST/v1/admin/generatekey    |
 | InjectKey      | /REST/v1/admin/injectkey      |
