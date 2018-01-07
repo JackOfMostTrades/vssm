@@ -6,11 +6,14 @@ LDFLAGS:= -w
 
 PACKAGE=stash.corp.netflix.com/ps/vssm
 
-build: generate scrypt.bin $(GOPATH)/src/$(PACKAGE)
+build: generate scrypt.bin bootstrapper.bin $(GOPATH)/src/$(PACKAGE)
 	cd $(GOPATH)/src/$(PACKAGE) && go build
 
 scrypt.bin:
 	cd $(GOPATH)/src/$(PACKAGE)/scrypt && go build -o ../scrypt.bin
+
+bootstrapper.bin:
+	cd $(GOPATH)/src/$(PACKAGE)/bootstrapper && go build -o ../bootstrapper.bin
 
 generate: $(GOPATH)/src/$(PACKAGE)
 	mkdir -p build
@@ -23,7 +26,7 @@ $(GOPATH)/src/%:
 	test -L $@ || ln -sf ../../.. $@
 
 fmt:
-	gofmt -s -w *.go awsprov/*.go cloud/*.go logging/*.go scryptlib/*.go
+	gofmt -s -w *.go awsprov/*.go bootstrapper/*.go cloud/*.go logging/*.go scryptlib/*.go
 
 test:
 	cd $(GOPATH)/src/$(PACKAGE) && go test -v

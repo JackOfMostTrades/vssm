@@ -1,6 +1,8 @@
 /src/
 /vssmpb/
-/vssm
 *.iml
 /.idea/
 /build/
+/vssm
+/scrypt.bin
+/bootstrapper.bin

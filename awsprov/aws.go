@@ -57,31 +57,40 @@ func (p *AwsCloudProvider) GetAttestation() ([]byte, error) {
 	return getLocalCms()
 }
 
-func (p *AwsCloudProvider) VerifyAttestation(attestation []byte) error {
-
-	p7, err := pkcs7.Parse(attestation)
+func VerifyAndReturnMetadata(cmsMetadata []byte) (map[string]interface{}, error) {
+	p7, err := pkcs7.Parse(cmsMetadata)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	var clientMetadata map[string]interface{}
 	err = json.Unmarshal(p7.Content, &clientMetadata)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	region := clientMetadata["region"].(string)
 	certBytes, err := base64.StdEncoding.DecodeString(awsCerts[region])
 	if err != nil {
-		return err
+		return nil, err
 	}
 	cert, err := x509.ParseCertificate(certBytes)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	p7.Certificates = []*x509.Certificate{cert}
 	err = p7.Verify()
+	if err != nil {
+		return nil, err
+	}
+
+	return clientMetadata, nil
+}
+
+func (p *AwsCloudProvider) VerifyAttestation(attestation []byte) error {
+
+	clientMetadata, err := VerifyAndReturnMetadata(attestation)
 	if err != nil {
 		return err
 	}
